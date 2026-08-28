@@ -25,7 +25,10 @@ factor inert. Partial credit for missing evidence is what makes it discriminate.
 coverage(d) = best credit over candidates; depth(d) = min(1, matches / depth_saturation)
 Serviceability = sum(w_d * (0.7*coverage + 0.3*depth)) / sum(w_d)
 
-w_d weights each atom by its own N1 contribution: unfilled roles dominate.
+w_d is fresh-first: the newest demand carries the most weight, so the bench is
+graded hardest on what is being asked for NOW (config match.atom_weight_*).
+Atoms are further damped by signal_weight, so a stale or delisted posting
+does not demand full bench coverage.
 Region is NOT a match constraint: the bench is nearshore/remote by definition.
 Stated as an assumption in the UI.
 """
@@ -105,7 +108,12 @@ def serviceability(eligible_pool: pd.DataFrame, bench: pd.DataFrame) -> pd.DataF
             coverage, n_match = _atom_match(atom_rank, atom_tags, candidates)
             depth = min(1.0, n_match / m["depth_saturation"])
 
-            w = _atom_weight(atom.posting_age_days)
+            # age policy: thresholds on the verified-effective age, and the
+            # whole atom damped by its signal weight (stale or delisted
+            # postings should not demand bench coverage at full strength)
+            age = getattr(atom, "age_effective", atom.posting_age_days)
+            sw = getattr(atom, "signal_weight", 1.0)
+            w = _atom_weight(age) * (sw if sw == sw else 1.0)
             weight_sum += w
             score_sum += w * (m["coverage_weight"] * coverage + m["depth_weight"] * depth)
 

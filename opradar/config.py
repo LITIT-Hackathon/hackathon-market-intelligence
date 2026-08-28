@@ -16,11 +16,28 @@ CONFIG: dict = {
     "min_it_postings": 3,
     "recency_guard_days": 90,
 
-    # ---- Need signals (ALGORITHM.md 4.4) ----
-    # thresholds chosen by measurement: >45d is the only candidate that
-    # separates a majority of the pool; >90d rides along.
+    # ---- Posting age policy ----
+    # Fresh-first: a posting's weight falls linearly from 1.0 on the day it
+    # is posted to 0.0 at hard_cap_days, and is dropped past that -- the
+    # newer the ad, the more it counts, and a ~3-month-old ad counts nothing,
+    # alive or not. Raise full_weight_days to give the newest ads a plateau.
+    "age": {"full_weight_days": 0, "hard_cap_days": 90},
+
+    # ---- Liveness (data/processed/liveness.parquet, opradar.liveness) ----
+    # dead_weight: a confirmed-dead posting keeps a token residual weight --
+    # it marks hiring energy and keeps the company on the board, but it can
+    # never outrank verified-live demand (0.25 let high-churn posters whose
+    # every ad was already gone top the fresh-first radar).
+    "liveness": {"dead_weight": 0.1, "ttl_days": 7},
+
+    # ---- Need signals ----
+    # N1 is FRESH demand (product decision, supersedes ALGORITHM.md 4.4's
+    # unfilled-demand reading): mostly the age-weighted volume of postings
+    # newer than fresh_days, partly the age-weighted volume overall. days_a/
+    # days_b only feed the >45d / >90d display columns.
     "need_weights": {"n1": 35, "n2": 25, "n3": 20, "n4": 20},
-    "n1": {"days_a": 45, "days_b": 90, "mix_a": 0.6, "mix_b": 0.4},
+    "n1": {"days_a": 45, "days_b": 90,
+           "fresh_days": 30, "mix_fresh": 0.6, "mix_volume": 0.4},
     "n2": {"mix_count": 0.6, "mix_share": 0.4},
     "n3": {"volume_damp_at": 5, "tech_damp_at": 3},
     "n4": {"window_days": 180},
@@ -50,9 +67,9 @@ CONFIG: dict = {
         "unknown_seniority_credit": 0.85,
         # an atom only counts as "we could staff this" above this credit
         "strong_coverage": 0.7,
-        # w_d: each atom weighted by its own N1 contribution -- an unfilled
-        # role matters more than a fresh one
-        "atom_weight_gt90": 1.0, "atom_weight_gt45": 0.8, "atom_weight_fresh": 0.4,
+        # w_d: fresh-first -- the newest demand matters most, so the bench
+        # is graded hardest on whether it can serve what is being asked NOW
+        "atom_weight_gt90": 0.3, "atom_weight_gt45": 0.6, "atom_weight_fresh": 1.0,
     },
 
     # ---- Pipeline B: people scoring (ALGORITHM_PEOPLE.md 5) ----
@@ -64,7 +81,8 @@ CONFIG: dict = {
     },
 
     # ---- Evidence attached to every ranked company (ALGORITHM.md 4.7) ----
-    "evidence": {"max_postings": 6, "oldest": 4, "freshest": 2},
+    # fresh-first: panels lead with the newest ads
+    "evidence": {"max_postings": 6, "freshest": 4, "oldest": 2},
 
     # ---- Validation (ALGORITHM.md 7) ----
     "validation": {"perturbation": 0.2, "perturbation_samples": 8, "top_k": 20},

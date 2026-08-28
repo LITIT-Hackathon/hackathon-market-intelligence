@@ -611,8 +611,8 @@ if (D.radar) {
           + `<span class="csub">${esc(plain(r))}</span>` },
       { t: 'Focus', v: rx('techs'), sortKey: r => rx('techs')(r).length,
         render: r => rx('techs')(r).slice(0, 3).map(t => `<span class="chip">${esc(t)}</span>`).join('') },
-      { t: 'Stuck 3+ months', v: rx('open90'), r: true,
-        render: r => rx('open90')(r) ? `<b>${rx('open90')(r)}</b>` : '<span class="z">0</span>' },
+      { t: 'Open 6+ weeks', v: rx('open45'), r: true,
+        render: r => rx('open45')(r) ? `<b>${rx('open45')(r)}</b>` : '<span class="z">0</span>' },
       { t: 'Can we staff it', v: rx('svc'), r: true, render: r => {
           const v = rx('svc')(r);
           return `<span class="svcbar"><i class="${v < 0.5 ? 'low' : ''}" style="width:${(v*100).toFixed(0)}%"></i></span>`
@@ -634,7 +634,7 @@ if (D.radar) {
       const sum = k => out.reduce((a, r) => a + rx(k)(r), 0);
       $('#k-ranked').textContent = fmt(out.length);
       $('#k-roles').textContent = fmt(sum('it_n'));
-      $('#k-stuck').textContent = fmt(sum('open90'));
+      $('#k-stuck').textContent = fmt(sum('open45'));
       return out;
     },
     onRow: (tr, r) => {

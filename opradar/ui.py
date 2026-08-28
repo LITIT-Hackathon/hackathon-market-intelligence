@@ -463,7 +463,10 @@ def _radar_replacements(payload: dict) -> dict:
     # across the ranked list rather than reported as pipeline internals.
     idx = {c: i for i, c in enumerate(r["cols"])}
     open_roles = sum(row[idx["it_n"]] for row in r["rows"])
-    stuck = sum(row[idx["open90"]] for row in r["rows"])
+    # fresh-first drops postings past hard_cap_days, so open_90 is now
+    # structurally zero. The 45-day threshold is the longest the data
+    # still supports, and it carries the same meaning: not filled yet.
+    stuck = sum(row[idx["open45"]] for row in r["rows"])
     return {
         "__R_HASH__": rm["config_hash"],
         "__R_RANKED__": f"{rm['ranked']:,}",
@@ -619,7 +622,7 @@ TEMPLATE = r"""<!doctype html>
   <div class="kpis">
     <div class="kpi hl"><p class="label">Companies worth calling</p><p class="v num" id="k-ranked">__R_RANKED__</p><p class="n">ranked below, best first</p></div>
     <div class="kpi"><p class="label">IT roles they cannot fill</p><p class="v num" id="k-roles">__R_OPENROLES__</p><p class="n">open right now across all of them</p></div>
-    <div class="kpi"><p class="label">Stuck over 3 months</p><p class="v num" id="k-stuck">__R_STUCK__</p><p class="n">the strongest sign a company needs help</p></div>
+    <div class="kpi"><p class="label">Open over 6 weeks</p><p class="v num" id="k-stuck">__R_STUCK__</p><p class="n">still not filled after six weeks</p></div>
   </div>
 
   <div class="controls">
