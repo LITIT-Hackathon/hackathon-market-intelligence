@@ -24,6 +24,15 @@ _SENIORITIES = ["junior", "mid", "senior", "lead"]
 def build(eligible: pd.DataFrame) -> pd.DataFrame:
     unfilled_days = CONFIG["people"]["market_pull_days"]
 
+    eligible = eligible.copy()
+    if "age_effective" not in eligible.columns:
+        eligible["age_effective"] = eligible["posting_age_days"]
+    if "signal_weight" not in eligible.columns:
+        eligible["signal_weight"] = 1.0
+
+    def _unfilled(df: pd.DataFrame, days: float) -> float:
+        return round(float(df.loc[df["age_effective"] > days, "signal_weight"].sum()), 2)
+
     rows = []
     for family in ref.ROLE_FAMILIES_ATOM:
         fam = eligible[eligible["role_family"] == family]
@@ -35,8 +44,8 @@ def build(eligible: pd.DataFrame) -> pd.DataFrame:
             "role_family": family, "seniority": "all",
             "demand_postings": len(fam),
             "demand_stated": int(fam["seniority_rank"].notna().sum()),
-            "unfilled_45": int((fam["posting_age_days"] > unfilled_days).sum()),
-            "unfilled_90": int((fam["posting_age_days"] > 90).sum()),
+            "unfilled_45": _unfilled(fam, unfilled_days),
+            "unfilled_90": _unfilled(fam, 90),
             "companies": int(fam["company_key"].nunique()),
         })
         for seniority in _SENIORITIES:
@@ -48,8 +57,8 @@ def build(eligible: pd.DataFrame) -> pd.DataFrame:
                 "seniority": seniority,
                 "demand_postings": len(pool),
                 "demand_stated": len(stated),
-                "unfilled_45": int((pool["posting_age_days"] > unfilled_days).sum()),
-                "unfilled_90": int((pool["posting_age_days"] > 90).sum()),
+                "unfilled_45": _unfilled(pool, unfilled_days),
+                "unfilled_90": _unfilled(pool, 90),
                 "companies": int(pool["company_key"].nunique()),
             })
     return pd.DataFrame(rows)

@@ -86,9 +86,39 @@ The second program (ALGORITHM.md's division of labour), joined to the parser by
 | V1–V3 + people checks | `validate.py` | `validation.json`, `score_report.md` |
 
 Every tunable lives in `config.py`; the config hash is stamped into every output row.
-Current run: V1 Spearman vs volume **0.47**, V2 **clean**, V3 top-20 overlap 14/20 under
+Current run: V1 Spearman vs volume **0.38**, V2 **clean**, V3 top-20 overlap **17/20** under
 ±20% perturbation. The UI's Radar and Bench tabs render these outputs (with live weight
 sliders); they disappear cleanly when the scorer has not been run.
+
+### Age policy + liveness
+
+The dataset is one snapshot; by scoring time most of its ads are gone. Two guards
+(`CONFIG["age"]`, `CONFIG["liveness"]`):
+
+- **Fresh-first age decay**: a posting's weight falls linearly from 1.0 on the
+  day it is posted to 0.0 at 90 days, and it is dropped past that — alive or
+  not. The newest demand is the product: N1 is now *fresh demand* (60% the
+  age-weighted volume of postings ≤30d, 40% the age-weighted volume overall),
+  match atoms grade the bench hardest on the newest asks, and evidence panels
+  lead with the newest ads. The weight multiplies every count the Need
+  signals, the match atoms and the market pull consume.
+- **Liveness** — `python -m opradar.liveness` asks the same API the arbeitsagentur
+  SPA uses (`pc/v4/jobdetails`, `X-API-Key: jobboerse-jobsuche`; 200 = alive,
+  404/410 = delisted) for every pool posting. Full pool (~2.3k) checks in ~30s at
+  concurrency 12; results cache in `liveness.parquet` with a 7-day TTL, so re-runs
+  cost seconds. The scorer stays offline: it only reads the parquet if present.
+  - verified **alive** → normal fresh-first weight; a live ad also satisfies
+    the recency guard and the fresh confidence tier
+  - verified **dead** → damped to 10% weight: enough to keep the company on the
+    board, never enough to outrank verified-live demand (at 25%, high-churn
+    posters whose every ad was already gone topped the radar)
+  - evidence never cites a confirmed-dead link, except for companies whose every
+    posting is dead — there the delisted ads *are* the evidence, each flagged
+    `live: false` for the UI to badge
+  - per-company `live_n` / `dead_n` / `live_rate` columns ride into
+    `opportunities.parquet` for the UI
+
+Last backfill (2026-08-29): 684 alive / 1,598 dead — 30% of the pool still live.
 
 ## Viewer
 

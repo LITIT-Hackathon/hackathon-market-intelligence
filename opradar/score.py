@@ -42,8 +42,20 @@ def run(data_dir: Path) -> dict:
     postings = pd.read_parquet(data_dir / "postings.parquet")
     companies = pd.read_parquet(data_dir / "companies.parquet")
 
+    liveness = None
+    lv_path = data_dir / "liveness.parquet"
+    if lv_path.exists():
+        liveness = pd.read_parquet(lv_path)
+        alive_n = int((liveness["alive"] == True).sum())    # noqa: E712
+        dead_n = int((liveness["alive"] == False).sum())    # noqa: E712
+        _log(f"      liveness: {alive_n:,} alive / {dead_n:,} dead "
+             f"({alive_n / max(1, alive_n + dead_n) * 100:.0f}% of checked still live)")
+    else:
+        _log("      no liveness.parquet -- age policy only "
+             "(run `python -m opradar.liveness` to add liveness)")
+
     _log("[2/7] signals (Pipeline A)")
-    sig, eligible_pool = signals_mod.build(postings, companies)
+    sig, eligible_pool = signals_mod.build(postings, companies, liveness)
     _log(f"      pool: {len(sig)} companies >= {CONFIG['min_it_postings']} eligible IT postings "
          f"({len(eligible_pool):,} postings)")
 
@@ -116,18 +128,22 @@ def _report(ranked: pd.DataFrame, value: pd.DataFrame, checks: dict) -> str:
         "# Score report",
         "",
         f"Config `{config_hash()}`. {len(live)} companies ranked, "
-        f"{int(ranked['excluded'].sum())} excluded by the recency guard.",
+        f"{int(ranked['excluded'].sum())} excluded by the recency guard. "
+        f"Fresh-first: posting weight falls linearly from 1.0 on posting day to 0 at "
+        f"{CONFIG['age']['hard_cap_days']}d, alive or not; "
+        f"confirmed-dead postings keep {CONFIG['liveness']['dead_weight']:.0%} weight.",
         "",
         "## Top 15 opportunities",
         "",
-        "| # | company | class | opp | need | svc | conf | IT | >45d | >90d |",
-        "| ---: | --- | --- | ---: | ---: | ---: | --- | ---: | ---: | ---: |",
+        "| # | company | class | opp | need | svc | conf | IT | live | >45d | >90d |",
+        "| ---: | --- | --- | ---: | ---: | ---: | --- | ---: | --- | ---: | ---: |",
     ]
     for r in live.head(15).itertuples():
+        live_cell = f"{r.live_n}/{r.checked_n}" if r.checked_n else "-"
         out.append(
             f"| {int(r.rank)} | {r.company_name} | {r.company_class} | **{r.opportunity}** "
             f"| {r.need} | {r.serviceability:.2f} | {r.confidence_band} "
-            f"| {r.it_n} | {r.open_45} | {r.open_90} |")
+            f"| {r.it_n} | {live_cell} | {r.open_45} | {r.open_90} |")
 
     out += [
         "",

@@ -29,8 +29,9 @@ def need_components(signals: pd.DataFrame) -> pd.DataFrame:
     s = signals.copy()
     c1, c2, c3 = CONFIG["n1"], CONFIG["n2"], CONFIG["n3"]
 
-    # N1 -- unmet demand
-    s["n1"] = c1["mix_a"] * _pct(s["open_45"]) + c1["mix_b"] * _pct(s["open_90"])
+    # N1 -- fresh demand: mostly the age-weighted volume of the newest
+    # postings, partly the age-weighted volume overall (fresh-first)
+    s["n1"] = c1["mix_fresh"] * _pct(s["fresh_w"]) + c1["mix_volume"] * _pct(s["it_w"])
 
     # N2 -- seniority pressure (count and share, both percentiled)
     s["n2"] = c2["mix_count"] * _pct(s["senior_n"]) + c2["mix_share"] * _pct(s["senior_share"])
@@ -58,6 +59,9 @@ def confidence(signals: pd.DataFrame) -> pd.DataFrame:
     recency = pd.Series(c["recency_old"], index=s.index)
     recency[s["has_recent_90d"]] = c["recency_90d"]
     recency[s["has_fresh_30d"]] = c["recency_fresh"]
+    if "has_live" in s.columns:
+        # a verified-live ad is the freshest evidence there is
+        recency[s["has_live"]] = c["recency_fresh"]
 
     identity = pd.Series(c["identity_merged"], index=s.index)
     identity[s["name_variant_count"] == 1] = c["identity_clean"]
@@ -78,21 +82,38 @@ def confidence(signals: pd.DataFrame) -> pd.DataFrame:
 
 
 def _evidence(grp: pd.DataFrame) -> str:
-    """3-8 postings per company: the oldest unfilled plus the freshest, with
-    live URLs. This is what makes every score claim clickable."""
+    """3-8 postings per company: the freshest first, plus the oldest still
+    in range, with live URLs. This is what makes every score claim clickable.
+
+    Confirmed-dead postings are excluded -- a 404 evidence link disproves the
+    claim it was meant to support. Ages are effective ages (verified-alive
+    postings age past the snapshot). Each entry carries live: true/false/null
+    so the UI can badge verification state."""
     e = CONFIG["evidence"]
-    oldest = grp.sort_values("posting_age_days", ascending=False).head(e["oldest"])
-    freshest = grp.sort_values("posting_age_days").head(e["freshest"])
+
+    if "alive" in grp.columns:
+        dead = (grp["alive"].astype("boolean") == False).fillna(False)  # noqa: E712
+        cand = grp[~dead]
+        if cand.empty:                       # nothing verifiable left: show all
+            cand = grp
+    else:
+        cand = grp
+    age_col = "age_effective" if "age_effective" in cand.columns else "posting_age_days"
+
+    freshest = cand.sort_values(age_col).head(e["freshest"])
+    oldest = cand.sort_values(age_col, ascending=False).head(e["oldest"])
     seen, out = set(), []
-    for r in pd.concat([oldest, freshest]).itertuples():
+    for r in pd.concat([freshest, oldest]).itertuples():
         if r.posting_id in seen:
             continue
         seen.add(r.posting_id)
+        alive = getattr(r, "alive", None)
         out.append({
             "title": r.title_clean,
             "url": r.source_url,
-            "age": int(r.posting_age_days),
+            "age": int(getattr(r, age_col)),
             "family": r.role_family,
+            "live": None if pd.isna(alive) else bool(alive),
         })
         if len(out) >= e["max_postings"]:
             break
