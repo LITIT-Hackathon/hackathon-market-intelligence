@@ -341,57 +341,34 @@ devops 135, platform 135, frontend 85.
 
 ## 6. Pipelines B and C — People and Match
 
-**Not measured. Specification only.** Its purpose is to define what the dataset
-must contain so that Part 3 is a join rather than a rescue project.
+**Moved.** The people pipeline, the vocabulary bridge and the match formula now
+live in **`ALGORITHM_PEOPLE.md`**, written against the candidate data actually in
+the repo. This section keeps only the contract the two pipelines share.
 
-### The shared vocabulary
+### The shared vocabulary — the integration contract
 
 Both sides must emit the same unit:
 
 ```
 RoleAtom {
   role_family : dev | ops | data | security | qa | architect | analyst | support
-  tech_tags   : subset of the 12 tech_categories above
+  tech_tags   : subset of the tech_categories above
   seniority   : junior | mid | senior | lead
   region      : NUTS code
 }
 ```
 
-Demand: one posting → one RoleAtom. Supply: one candidate → one RoleAtom. If the
-people pipeline invents its own skill vocabulary, Part 3 becomes the whole
-hackathon. **Reuse `reference.py`'s technology map — do not write a second one.**
+Demand: one posting → one RoleAtom. Supply: one candidate → one RoleAtom.
 
-### Candidate record
+**`reference.py` is the single technology map. Neither pipeline may define a
+second one** — that rule is the whole reason Pipeline C can be a join rather
+than a research project. The candidate fixture currently in the repo breaks it:
+7 of its 73 skills have a German equivalent, covering 3.3% of German IT
+postings. `ALGORITHM_PEOPLE.md` §4 sets out the three ways to fix that and
+recommends one.
 
-```
-Candidate {
-  candidate_id, role_atom, years_experience
-  availability : available_now | in_30d | in_90d | unavailable
-  languages    : set              # German capability is a real nearshore constraint
-  location     : region + remote_ok
-  source       : synthetic | consented        # MUST be labelled in the UI
-}
-```
-
-### Match
-```
-for each demand atom d:
-    coverage(d) = 1 if ≥1 candidate matches (role_family, tech ∩ ≠ ∅,
-                       seniority ≥ d.seniority − 1); partial credit adjacent
-    depth(d)    = min(1, matching_candidates / 3)
-
-Serviceability = Σ wᵈ·(0.7·coverage + 0.3·depth) / Σ wᵈ
-```
-`wᵈ` weights each atom by its own N1 contribution — an unfilled senior role we
-can staff matters far more than a junior role we cannot.
-
-Sales framing: *"Siemens Energy has 11 IT roles open past 90 days, 3 senior,
-concentrated in data. We have 5 matching data engineers free within 30 days."*
-
-**Two constraints.** Synthetic candidates must be labelled synthetic on screen —
-a judge who suspects generated people are being passed off as real applicants
-discounts every other number. And if real candidate data is ever used, it is EU
-personal data: consented only, and say so on the limitations slide.
+Until the bridge lands, `Serviceability = 1.0` and the company ranking is driven
+by Need alone.
 
 ---
 
