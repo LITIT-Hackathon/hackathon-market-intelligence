@@ -214,9 +214,9 @@ def build_radar(data_dir: Path) -> dict | None:
          float(r.confidence), r.confidence_band,
          int(r.it_n), int(r.open_45), int(r.open_90), int(r.senior_n),
          int(r.median_age), list(r.top_technologies),
-         json.loads(r.evidence) if isinstance(r.evidence, str) else [],
          int(r.live_n), int(r.dead_n),
          float(r.deal_size), float(r.placeable_w),
+         json.loads(r.timeline) if isinstance(r.timeline, str) else [],
         ]
         for r in live.itertuples()
     ]
@@ -235,8 +235,8 @@ def build_radar(data_dir: Path) -> dict | None:
         "cols": ["rank", "name", "class", "review", "opp", "need",
                  "n1", "n2", "n3", "n4", "svc", "covered", "uncovered",
                  "uncovered_families", "conf", "band", "it_n", "open45",
-                 "open90", "senior_n", "median_age", "techs", "evidence",
-                 "live_n", "dead_n", "deal", "placeable"],
+                 "open90", "senior_n", "median_age", "techs",
+                 "live_n", "dead_n", "deal", "placeable", "timeline"],
         "rows": rows,
         "excluded_rows": excluded,
         "validation": {
