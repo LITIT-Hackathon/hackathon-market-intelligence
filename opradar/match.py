@@ -5,14 +5,22 @@ atom against the bench, aggregate to Serviceability(C) in [0, 1].
 
 Match rule per atom d:
     role_family equal
-    AND tech overlap        (an atom with NO tech signal passes this test --
-                             ~45% of eligible titles name no technology, and
-                             auto-failing them would zero half the market
-                             for a data-coverage reason, not a real one)
+    AND tech overlap        (an atom naming NO technology is not auto-failed --
+                             49.6% of eligible titles name none, and zeroing
+                             them would punish a data gap rather than a real
+                             one -- but it is not a free pass either: it earns
+                             unknown_tech_credit, because matching on role
+                             family alone is not evidence that we can staff it)
     AND seniority           (candidate rank >= atom rank passes fully;
                              exactly one below earns adjacent_credit;
-                             an atom with UNKNOWN seniority passes)
+                             an UNKNOWN seniority earns unknown_seniority_credit)
     AND availability != unavailable
+
+    credit(d) = tech_credit * seniority_credit
+
+Treating both unknowns as passes made 39.5% of demand match on role_family
+alone and pinned serviceability near 1.0 for every company, which made the
+factor inert. Partial credit for missing evidence is what makes it discriminate.
 
 coverage(d) = best credit over candidates; depth(d) = min(1, matches / depth_saturation)
 Serviceability = sum(w_d * (0.7*coverage + 0.3*depth)) / sum(w_d)
@@ -56,16 +64,25 @@ def _atom_match(atom_rank, atom_tags: set, candidates: list[dict]) -> tuple[floa
     m = CONFIG["match"]
     best, n = 0.0, 0
     for cand in candidates:
-        if atom_tags and not (atom_tags & cand["tags"]):
-            continue
-        if atom_rank is None or cand["rank"] >= atom_rank:
-            credit = 1.0
+        if atom_tags:
+            if not (atom_tags & cand["tags"]):
+                continue
+            tech_credit = 1.0
+        else:
+            # no technology named in the title: we matched on role family only
+            tech_credit = m["unknown_tech_credit"]
+
+        if atom_rank is None:
+            sen_credit = m["unknown_seniority_credit"]
+        elif cand["rank"] >= atom_rank:
+            sen_credit = 1.0
         elif cand["rank"] == atom_rank - 1:
-            credit = m["adjacent_credit"]
+            sen_credit = m["adjacent_credit"]
         else:
             continue
+
         n += 1
-        best = max(best, credit)
+        best = max(best, tech_credit * sen_credit)
     return best, n
 
 
@@ -77,7 +94,7 @@ def serviceability(eligible_pool: pd.DataFrame, bench: pd.DataFrame) -> pd.DataF
     rows = []
     for key, grp in eligible_pool.groupby("company_key"):
         weight_sum = score_sum = 0.0
-        covered = uncovered = 0
+        covered = uncovered = strong = 0
         uncovered_families: dict[str, int] = {}
 
         for atom in grp.itertuples():
@@ -92,6 +109,8 @@ def serviceability(eligible_pool: pd.DataFrame, bench: pd.DataFrame) -> pd.DataF
             weight_sum += w
             score_sum += w * (m["coverage_weight"] * coverage + m["depth_weight"] * depth)
 
+            if coverage >= m["strong_coverage"]:
+                strong += 1
             if coverage > 0:
                 covered += 1
             else:
@@ -103,6 +122,7 @@ def serviceability(eligible_pool: pd.DataFrame, bench: pd.DataFrame) -> pd.DataF
             "serviceability": round(score_sum / weight_sum, 4) if weight_sum else 0.0,
             "atoms_total": covered + uncovered,
             "atoms_covered": covered,
+            "atoms_strong": strong,
             "atoms_uncovered": uncovered,
             # JSON string, not a dict: pyarrow unions dict keys across rows on
             # the parquet round-trip and nulls the gaps, corrupting the counts
