@@ -24,10 +24,9 @@ Example target API:
 
 ## Provided
 
-- Parakeet reference implementation/repository
-- Parakeet model assets
-- English and German test audio
-- Reference transcripts
+- Parakeet reference implementation/repository https://github.com/mudler/parakeet.cpp
+- Parakeet model assets .nemo and .gguf
+- English and German test audio: German -> https://learngerman.dw.com/de/langsam-gesprochene-nachrichten/s-60040332 and English: https://www.bbc.com/audio/play/p0p6c0k7
 - GCP sandbox and token credits
 
 ## Out of Scope
