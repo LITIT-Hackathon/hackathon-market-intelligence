@@ -194,6 +194,37 @@ tr.evrow>td{background:var(--paper-2);padding:14px 16px 16px}
 .evhead{font:600 11px/1 var(--sans);letter-spacing:.1em;text-transform:uppercase;
   color:var(--muted);margin:2px 0 8px}
 .uncov{font:400 12px var(--sans);color:var(--warn);margin-top:10px}
+/* ---------- open-roles timeline (evidence panel) ---------- */
+.tlc{position:relative;background:var(--ink);border-radius:var(--r-sm);padding:10px 12px 10px;margin-top:4px}
+.tlc svg{display:block;width:100%;height:auto}
+.tlc a{cursor:pointer}
+.tlc a:hover text{fill:var(--accent)}
+.tlhit{cursor:crosshair}
+.tlmeta{font:400 11.5px/1.5 var(--sans);color:var(--muted-2);margin:9px 2px 0}
+.tlmeta b{color:var(--paper);font-weight:600}
+/* the hover read-out: which roles were open at the point under the cursor */
+.tltip{position:absolute;z-index:6;left:0;top:0;pointer-events:none;opacity:0;
+  transition:opacity .1s;width:296px;background:var(--paper);border:1px solid var(--line);
+  border-radius:var(--r-sm);box-shadow:0 12px 34px rgba(0,0,0,.4);padding:10px 12px 11px}
+.tltip.on{opacity:1}
+.tltip.pin{pointer-events:auto}
+.tth{font:600 13px var(--sans);color:var(--ink);padding-bottom:7px;
+  display:flex;justify-content:space-between;align-items:baseline;gap:10px}
+.tth span{font:400 10.5px var(--sans);color:var(--muted);white-space:nowrap}
+.ttr{display:grid;grid-template-columns:9px 1fr;gap:0 9px;padding:6px 0;
+  border-top:1px solid var(--line);text-decoration:none}
+.ttr i{width:8px;height:8px;border-radius:50%;background:var(--accent);
+  border:1px solid var(--ink);margin-top:4px}
+.ttr.dead i{background:var(--paper);border-color:var(--line-2)}
+.ttr.unk i{background:var(--line)}
+.ttt{font:500 12px/1.35 var(--sans);color:var(--ink)}
+.ttm{grid-column:2;font:400 10.5px var(--sans);color:var(--muted);margin-top:2px}
+.ttr.dead .ttt{color:var(--muted)}
+.tltip.pin .ttr:hover .ttt{color:var(--link);text-decoration:underline}
+.ttmore{font:400 10.5px var(--sans);color:var(--muted);padding-top:7px;border-top:1px solid var(--line)}
+.tlpin{display:none;font:600 9.5px var(--sans);letter-spacing:.09em;text-transform:uppercase;
+  color:var(--muted-2);margin-top:8px}
+.tltip.pin .tlpin{display:block}
 tbody tr.clickable{cursor:pointer}
 
 /* ---------- quality ---------- */
@@ -614,6 +645,325 @@ if (D.radar) {
     return out;
   };
 
+  /* ------------------------------------------------------ open-roles timeline
+     The snapshot is a STOCK of ads that were open on the crawl date, so every
+     ad counts as open from the day it went up until the day we verified it
+     gone: this curve is real concurrent demand, not a per-day posting
+     histogram (length bias makes those meaningless). Between the snapshot and
+     the re-check we know nothing, so that stretch is drawn as an explicit
+     dashed gap instead of a guessed fill date. Hovering anywhere reads out the
+     roles that were open at that moment. */
+  const TL = {seq: 0, store: {}};
+  const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+  /* SVG has no word wrap, and clipping titles mid-word was the whole problem
+     with the first version: wrap to two lines, ellipsis only as a last resort */
+  const tlWrap = (t, per, maxLines) => {
+    const words = String(t).split(/\s+/), lines = [];
+    let cur = '', cut = false;
+    for (const w of words) {
+      const next = cur ? cur + ' ' + w : w;
+      if (next.length <= per) { cur = next; continue; }
+      if (cur && lines.length + 1 >= maxLines) { cut = true; break; }
+      if (cur) lines.push(cur);
+      cur = w.length > per ? w.slice(0, per - 1) + '\u2026' : w;
+    }
+    if (cur) lines.push(cur);
+    if (cut) {
+      const i = lines.length - 1;
+      lines[i] = lines[i].slice(0, per - 1).replace(/[\s,;/-]+$/, '') + '\u2026';
+    }
+    return lines.slice(0, maxLines);
+  };
+
+  const timeline = tl => {
+    if (!tl || !tl.length) return '';
+    const id = 'tl' + (++TL.seq);
+    const ads = tl.slice().sort((a, b) => b.age - a.age);          /* oldest first */
+
+    /* +1 the day an ad went up, -1 the day we verified it gone */
+    const evm = new Map();
+    const slot = d => { if (!evm.has(d)) evm.set(d, {up: [], down: []}); return evm.get(d); };
+    ads.forEach(a => {
+      slot(a.age).up.push(a);
+      if (a.gone !== null && a.gone !== undefined && a.gone < a.age) slot(a.gone).down.push(a);
+    });
+    const days = [...evm.keys()].sort((a, b) => b - a);            /* left -> right */
+
+    const maxAge = ads[0].age;
+    const lastD = days[days.length - 1];
+    /* a tail past the last take-down, otherwise the drop lands exactly on the
+       right edge and the state it drops TO is a zero-width period */
+    const tail = lastD < 0 ? Math.max(3, Math.round(-lastD * 0.14)) : 0;
+    const hi = lastD < 0 ? lastD - tail : 0;                       /* right edge, days ago */
+    const lo = Math.max(maxAge + 3, 10);                           /* left edge */
+
+    const W = 1000, L = 46, R = 20, B = 40, PH = 152;
+    const pw = W - L - R;
+    const gapShare = hi < 0 ? 0.19 : 0;    /* the unobserved stretch, compressed */
+    const wA = pw * (1 - gapShare), wB = pw - wA;
+    const X = a => a >= 0 ? L + (lo - a) / lo * wA : L + wA + (-a) / (-hi) * wB;
+    const xSnap = L + wA;
+
+    const withDate = ads.find(a => a.posted);
+    const snapMs = withDate ? Date.parse(withDate.posted) + withDate.age * 864e5 : null;
+    const dstr = (a, yr) => {
+      if (snapMs === null) return a >= 0 ? a + 'd ago' : (-a) + 'd later';
+      const d = new Date(snapMs - a * 864e5);
+      return d.getDate() + ' ' + MON[d.getMonth()] + (yr ? ' ' + d.getFullYear() : '');
+    };
+
+    /* periods: a run of days over which the set of open roles does not change */
+    const periods = [], after = new Map();
+    let open = [], cursor = lo;
+    days.forEach(d => {
+      periods.push({a0: cursor, a1: d, open: open.slice()});
+      const ev = evm.get(d);
+      open = open.filter(x => ev.down.indexOf(x) < 0).concat(ev.up);
+      after.set(d, open.length);
+      cursor = d;
+    });
+    periods.push({a0: cursor, a1: hi, open: open.slice(), tail: tail > 0});
+    periods.forEach(q => { q.n = q.open.length; q.x0 = X(q.a0); q.x1 = X(q.a1); });
+    const yMax = Math.max(2, periods.reduce((m, q) => Math.max(m, q.n), 0) + 1);
+
+    /* one label per posting day, packed into lanes so two can never collide */
+    const LN = 13.5, LMAX = 3, CH = 6.15;
+    const labels = [];
+    days.forEach(d => {
+      const ev = evm.get(d);
+      if (!ev.up.length) return;
+      const lines = tlWrap(ev.up[0].title, 30, 2);
+      if (ev.up.length > 1) {                     /* the counter never wraps alone */
+        const suf = '  +' + (ev.up.length - 1);
+        const i = lines.length - 1;
+        if (lines[i].length + suf.length > 30) lines[i] = lines[i].slice(0, 27 - suf.length) + '\u2026';
+        lines[i] += suf;
+      }
+      labels.push({d, x: X(d), ups: ev.up, lines,
+                   w: Math.max(...lines.map(x => x.length)) * CH + 20,
+                   dead: ev.up.every(a => a.live === false)});
+    });
+    const laneEnd = [];
+    let lanes = 1;
+    labels.forEach(lb => {
+      lb.lx = Math.min(Math.max(lb.x, L + lb.w / 2), W - R - lb.w / 2);
+      let k = 0;
+      while (k < LMAX && laneEnd[k] !== undefined && laneEnd[k] > lb.lx - lb.w / 2) k++;
+      if (k >= LMAX) { lb.hide = true; return; }   /* too dense to label: it is in the hover */
+      lb.lane = k;
+      laneEnd[k] = lb.lx + lb.w / 2 + 10;
+      lanes = Math.max(lanes, k + 1);
+    });
+
+    const LANEH = 2 * LN + 11;
+    const T = 12 + lanes * LANEH + 24;
+    const H = Math.round(T + PH + B);
+    const Y = c => T + (1 - c / yMax) * PH;
+    const laneTop = k => 12 + (lanes - 1 - k) * LANEH;
+    periods.forEach(q => q.y = Y(q.n));
+    const f = v => v.toFixed(1);
+
+    /* ---- grid + axes ---- */
+    let g = '';
+    const yStep = Math.max(1, Math.ceil(yMax / 4));
+    for (let c = 0; c <= yMax; c += yStep) {
+      g += `<line x1="${L}" y1="${f(Y(c))}" x2="${W - R}" y2="${f(Y(c))}" stroke="#2B2E2C"/>`
+         + `<text x="${L - 10}" y="${f(Y(c) + 4)}" text-anchor="end" font-size="11.5" `
+         + `fill="#8D918E">${c}</text>`;
+    }
+    g += `<text transform="translate(15,${f(T + PH / 2)}) rotate(-90)" text-anchor="middle" `
+       + `font-size="9.5" letter-spacing="1.3" fill="#6B6F6C">OPEN ROLES</text>`;
+    const NT = 5;
+    for (let i = 0; i < NT; i++) {
+      const a = lo - lo * i / NT, x = X(a);
+      g += `<line x1="${f(x)}" y1="${f(T)}" x2="${f(x)}" y2="${f(T + PH)}" stroke="#232624"/>`
+         + `<text x="${f(x)}" y="${f(T + PH + 17)}" text-anchor="middle" font-size="11" `
+         + `fill="#8D918E">${dstr(a)}</text>`;
+    }
+
+    /* ---- the snapshot divider and the stretch we have no data for ---- */
+    let gapEl = '';
+    if (wB > 0) {
+      gapEl = `<rect x="${f(xSnap)}" y="${f(T)}" width="${f(wB)}" height="${PH}" fill="#FFFFFF" opacity=".035"/>`
+        + `<text x="${f((xSnap + X(lastD)) / 2)}" y="${f(T + PH + 17)}" text-anchor="middle" `
+        + `font-size="10.5" fill="#6B6F6C">not observed</text>`
+        + `<text x="${W - R}" y="${f(T - 12)}" text-anchor="end" font-size="9.5" letter-spacing="1.1" `
+        + `fill="#8D918E">RE-CHECKED ${dstr(lastD).toUpperCase()}</text>`;
+    }
+    const snapEl = `<line x1="${f(xSnap)}" y1="${f(T - 6)}" x2="${f(xSnap)}" y2="${f(T + PH + 3)}" `
+      + `stroke="#565A57" stroke-dasharray="2 4"/>`
+      + `<text x="${f(xSnap - 6)}" y="${f(T - 12)}" text-anchor="end" font-size="9.5" letter-spacing="1.1" `
+      + `fill="#8D918E">SNAPSHOT ${dstr(0).toUpperCase()}</text>`;
+
+    /* ---- the step line: solid where observed, dashed across the gap ---- */
+    const pts = [];
+    let cc = 0;
+    pts.push([L, Y(0)]);
+    days.forEach(d => {
+      const x = X(d);
+      pts.push([x, Y(cc)]);
+      cc = after.get(d);
+      pts.push([x, Y(cc)]);
+    });
+    pts.push([X(hi), Y(cc)]);
+
+    const solid = [], dash = [];
+    pts.forEach(q => {
+      if (q[0] <= xSnap + 0.01) solid.push(q);
+      else {
+        if (!dash.length) dash.push([xSnap, solid[solid.length - 1][1]]);
+        dash.push(q);
+      }
+    });
+    if (dash.length && solid[solid.length - 1][0] < xSnap - 0.01)
+      solid.push([xSnap, solid[solid.length - 1][1]]);
+
+    const pstr = arr => arr.map((q, i) => (i ? 'L' : 'M') + f(q[0]) + ' ' + f(q[1])).join(' ');
+    const defs = `<defs><linearGradient id="${id}g" x1="0" y1="0" x2="0" y2="1">`
+      + `<stop offset="0" stop-color="#FFEB00" stop-opacity=".2"/>`
+      + `<stop offset="1" stop-color="#FFEB00" stop-opacity="0"/></linearGradient></defs>`;
+    const area = `<path d="${pstr(solid)} L${f(solid[solid.length - 1][0])} ${f(T + PH)} `
+      + `L${L} ${f(T + PH)} Z" fill="url(#${id}g)"/>`;
+    const lineA = `<path d="${pstr(solid)}" fill="none" stroke="#FFEB00" stroke-width="2.6" `
+      + `stroke-linejoin="round" stroke-linecap="round"/>`;
+    const lineB = dash.length
+      ? `<path d="${pstr(dash)}" fill="none" stroke="#FFEB00" stroke-width="2" stroke-dasharray="5 5" `
+        + `opacity=".5" stroke-linejoin="round"/>` : '';
+
+    /* ---- markers: a dot per step up, a ring per verified take-down ---- */
+    let marks = '';
+    labels.forEach(lb => {
+      marks += `<circle cx="${f(lb.x)}" cy="${f(Y(after.get(lb.d)))}" r="4.5" `
+        + `fill="${lb.dead ? '#1A1C1B' : '#FFEB00'}" stroke="${lb.dead ? '#565A57' : '#1A1C1B'}" `
+        + `stroke-width="2"/>`;
+    });
+    days.filter(d => evm.get(d).down.length).forEach(d => {
+      const n = evm.get(d).down.length, x = X(d), y = Y(after.get(d));
+      marks += `<circle cx="${f(x)}" cy="${f(y)}" r="4.5" fill="#1A1C1B" stroke="#8D918E" stroke-width="2"/>`
+        + `<text x="${f(x - 9)}" y="${f(y + 4)}" text-anchor="end" font-size="11.5" font-weight="600" `
+        + `fill="#8D918E">\u2212${n} taken down</text>`;
+    });
+
+    /* ---- labels: leaders first, then chips, so nothing draws over a title ---- */
+    const vis = labels.filter(lb => !lb.hide);
+    let lab = vis.map(lb => {
+      const top = laneTop(lb.lane), h = lb.lines.length * LN + 9;
+      return `<line x1="${f(lb.lx)}" y1="${f(top + h)}" x2="${f(lb.x)}" `
+        + `y2="${f(Y(after.get(lb.d)) - 7)}" stroke="#383C39"/>`;
+    }).join('');
+    lab += vis.map(lb => {
+      const top = laneTop(lb.lane), h = lb.lines.length * LN + 9, x0 = lb.lx - lb.w / 2;
+      const text = lb.lines.map((t, j) =>
+        `<text x="${f(x0 + 11)}" y="${f(top + 6 + LN * (j + 1) - 3)}" font-size="12" `
+        + `font-weight="${j ? 400 : 600}" fill="${lb.dead ? '#9AA09C' : '#F5F5F2'}">${esc(t)}</text>`).join('');
+      return `<a href="${esc(lb.ups[0].url)}" target="_blank" rel="noopener">`
+        + `<title>${esc(lb.ups.map(a => a.title).join('\n'))}</title>`
+        + `<rect x="${f(x0)}" y="${f(top)}" width="${f(lb.w)}" height="${f(h)}" rx="5" fill="#212422"/>`
+        + `<rect x="${f(x0)}" y="${f(top)}" width="2.5" height="${f(h)}" rx="1.2" `
+        + `fill="${lb.dead ? '#565A57' : '#FFEB00'}"/>${text}</a>`;
+    }).join('');
+
+    /* ---- hover layer ---- */
+    const hov = `<g class="tlhi" style="display:none">`
+      + `<rect class="tlband" x="0" y="${f(T)}" width="0" height="${PH}" fill="#FFEB00" opacity=".07"/>`
+      + `<line class="tlcur" x1="0" x2="0" y1="${f(T - 6)}" y2="${f(T + PH)}" stroke="#FFEB00" opacity=".5"/>`
+      + `<circle class="tlcd" cx="0" cy="0" r="5.5" fill="#FFEB00" stroke="#1A1C1B" stroke-width="2"/></g>`
+      + `<rect class="tlhit" x="${L}" y="${f(T - 6)}" width="${f(pw)}" height="${f(PH + 6)}" fill="transparent"/>`;
+
+    const svg = `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" `
+      + `font-family="Inter,Arial,sans-serif">${defs}${g}${gapEl}${snapEl}${area}${lineA}${lineB}`
+      + `${marks}${lab}${hov}</svg>`;
+
+    TL.store[id] = {
+      W: W,
+      periods: periods.map(q => ({
+        x0: q.x0, x1: q.x1, y: q.y, n: q.n,
+        label: q.tail ? 'as of ' + dstr(q.a0)
+             : (q.a0 >= lo ? 'before ' + dstr(q.a1) : dstr(q.a0) + ' \u2013 ' + dstr(q.a1)),
+        open: q.open.map(a => ({title: a.title, url: a.url, live: a.live, family: a.family,
+                                when: dstr(a.age, true)})),
+      })),
+    };
+
+    const liveN = ads.filter(a => a.live === true).length;
+    const deadN = ads.filter(a => a.live === false).length;
+    const unkN = ads.length - liveN - deadN;
+    const meta = `<div class="tlmeta">Every step up is one ad going live; the height is how many `
+      + `roles were open at the same time. <b>${ads.length}</b> ads over ${maxAge} days`
+      + (deadN ? ` &middot; <b>${deadN}</b> taken down by the re-check` : '')
+      + (liveN ? ` &middot; <b>${liveN}</b> still live` : '')
+      + (unkN ? ` &middot; ${unkN} not re-checked` : '')
+      + ` &middot; hover the line for the roles open on any date, click to pin.`
+      + (labels.length > vis.length
+          ? ` <b>${labels.length - vis.length}</b> more posting days than fit as labels &mdash; `
+            + `they are all on the line.` : '')
+      + `</div>`;
+
+    return `<div class="tlc" id="${id}">${svg}`
+      + `<div class="tltip"><div class="ttbody"></div>`
+      + `<div class="tlpin">pinned &mdash; click the chart to release</div></div>${meta}</div>`;
+  };
+
+  /* Listeners have to be attached after the panel HTML lands in the DOM. */
+  const wireTimeline = root => {
+    root.querySelectorAll('.tlc').forEach(box => {
+      const st = TL.store[box.id];
+      if (!st || !st.periods.length) return;
+      const svg = box.querySelector('svg');
+      const tip = box.querySelector('.tltip'), body = tip.querySelector('.ttbody');
+      const hl = svg.querySelector('.tlhi'), band = svg.querySelector('.tlband');
+      const cur = svg.querySelector('.tlcur'), cd = svg.querySelector('.tlcd');
+      let pinned = false, shown = null;
+
+      const rowOf = a => `<a class="ttr${a.live === false ? ' dead' : (a.live === true ? '' : ' unk')}" `
+        + `href="${esc(a.url)}" target="_blank" rel="noopener"><i></i>`
+        + `<span class="ttt">${esc(a.title)}</span><span class="ttm">${esc(a.family)}`
+        + ` &middot; posted ${esc(a.when)}${a.live === false ? ' &middot; since taken down' : ''}`
+        + `</span></a>`;
+
+      const hide = () => { hl.style.display = 'none'; tip.classList.remove('on'); shown = null; };
+
+      const paint = (q, cx, cy, vx) => {
+        band.setAttribute('x', q.x0);
+        band.setAttribute('width', Math.max(0, q.x1 - q.x0));
+        cur.setAttribute('x1', vx); cur.setAttribute('x2', vx);
+        cd.setAttribute('cx', vx); cd.setAttribute('cy', q.y);
+        hl.style.display = '';
+        if (shown !== q) {
+          body.innerHTML = `<div class="tth"><b>${q.n}</b> ${q.n === 1 ? 'role open' : 'roles open'}`
+            + `<span>${esc(q.label)}</span></div>`
+            + (q.open.length
+                ? q.open.slice(0, 7).map(rowOf).join('')
+                  + (q.open.length > 7
+                      ? `<div class="ttmore">+${q.open.length - 7} more open at the time</div>` : '')
+                : `<div class="ttmore">Nothing open yet.</div>`);
+          shown = q;
+        }
+        tip.classList.add('on');
+        tip.style.left = Math.max(6, Math.min(cx + 18, box.clientWidth - tip.offsetWidth - 6)) + 'px';
+        tip.style.top = Math.max(6, Math.min(cy - 14, box.clientHeight - tip.offsetHeight - 6)) + 'px';
+      };
+
+      svg.addEventListener('mousemove', e => {
+        if (pinned) return;
+        const r = svg.getBoundingClientRect(), b = box.getBoundingClientRect();
+        const vx = (e.clientX - r.left) / r.width * st.W;
+        let q = null;
+        st.periods.forEach(z => { if (vx >= z.x0 - 0.5) q = z; });
+        if (!q) { hide(); return; }
+        paint(q, e.clientX - b.left, e.clientY - b.top, vx);
+      });
+      svg.addEventListener('mouseleave', () => { if (!pinned) hide(); });
+      svg.addEventListener('click', e => {
+        if (e.target.closest && e.target.closest('a')) return;
+        pinned = !pinned;
+        tip.classList.toggle('pin', pinned);
+        if (!pinned) hide();
+      });
+    });
+  };
+
   const renderRadar = makeTable({
     head: '#ra-head', body: '#ra-body', count: '#ra-count', pager: '#ra-pager',
     total: R.rows.length, noun: 'companies', sort: 5, dir: -1,   /* 5 = Score */
@@ -665,24 +1015,21 @@ if (D.radar) {
         const anchor = [...document.querySelectorAll('#ra-body tr')]
           .find(x => x.dataset.ev === key);
         if (!anchor) return;
-        const ev = rx('evidence')(r), unc = rx('uncovered_families')(r);
+        const unc = rx('uncovered_families')(r);
         const row = document.createElement('tr');
         row.className = 'evrow';
         row.innerHTML = `<td colspan="6">`
           + `<div class="evwhy"><div class="evhead">Why this company</div><ul>`
           + reasons(r).map(t => `<li>${esc(t)}</li>`).join('') + `</ul></div>`
-          + `<div class="evhead">The actual job ads &mdash; click to open</div>`
-          + `<div class="evlist">` + ev.map(e =>
-              `<div><a href="${esc(e.url)}" target="_blank" rel="noopener">${esc(e.title)}</a>`
-            + `<span class="age ${e.age > 90 ? 'old' : ''}">open ${fmt(e.age)} days</span>`
-            + ` <span class="chip">${esc(e.family)}</span></div>`).join('')
-          + `</div>`
+          + `<div class="evhead">Open roles over time &mdash; hover the line to see which</div>`
+          + timeline(rx('timeline')(r))
           + (Object.keys(unc).length
               ? `<div class="uncov">We could not staff: ` + Object.entries(unc)
                   .map(([k, v]) => `${esc(k)} ×${v}`).join(', ')
                 + ` &mdash; not skills our bench currently has</div>` : '')
           + `</td>`;
         anchor.after(row);
+        wireTimeline(row);
       };
       tr.dataset.ev = rx('name')(r);
     },
