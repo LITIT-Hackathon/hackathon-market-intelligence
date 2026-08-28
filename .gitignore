@@ -7,3 +7,8 @@ data/
 .venv/
 __pycache__/
 *.pyc
+data/raw/
+ui/index.html
+__pycache__/
+*.pyc
+.venv/
