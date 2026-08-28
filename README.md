@@ -1,2 +1,42 @@
-# hackathon-market-intelligence
-Provision: Mock job sites/API, historical job data, CRM-like schema, evaluation dataset
+# Parakeet Native STT
+
+Build a lightweight local Speech-to-Text runtime around NVIDIA Parakeet,
+using a native C++ inference core and exposing the result as a simple,
+installable Python library.
+
+## MVP
+
+Your solution should:
+
+- Load the provided Parakeet model.
+- Accept WAV/PCM audio input.
+- Perform transcription through native C++ code.
+- Expose the native functionality to Python.
+- Be installable as a Python package.
+- Provide a simple transcription API.
+- Provide a CLI for verification.
+- Return transcript text and basic runtime metrics.
+- Include a repeatable smoke test.
+
+Example target API:
+
+    model.transcribe("audio.wav")
+
+## Provided
+
+- Parakeet reference implementation/repository
+- Parakeet model assets
+- English and German test audio
+- Reference transcripts
+- GCP sandbox and token credits
+
+## Out of Scope
+
+Training or fine-tuning the model is not required.
+
+Real-time streaming, word-level timestamps and broader hardware
+optimization are considered stretch goals.
+
+## Deliverable
+
+A working and demonstrable MVP with reproducible setup instructions.
