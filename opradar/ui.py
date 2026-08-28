@@ -656,7 +656,7 @@ TEMPLATE = r"""<!doctype html>
     </div>
   </details>
 
-  <div class="note" style="margin-top:18px"><b>How to read a row.</b> Click a company to open
+  <div class="note after"><b>How to read a row.</b> Click a company to open
     its evidence &mdash; the oldest unfilled and freshest postings, each linking to the live ad
     on arbeitsagentur.de. <em>review</em> marks companies the keyword rules could not
     confidently classify (the LLM-pass queue); their identity confidence is already discounted.
@@ -747,7 +747,7 @@ TEMPLATE = r"""<!doctype html>
     <div class="panel wide" style="order:7">
       <p class="label">Geography</p><h3>Where the postings are</h3>
       <p class="hint" id="region-hint"></p>
-      <label class="chk" style="margin-bottom:14px"><input type="checkbox" id="region-norm"> Per million inhabitants</label>
+      <label class="chk spaced"><input type="checkbox" id="region-norm"> Per million inhabitants</label>
       <div id="c-region"></div>
     </div>
     <div class="panel wide" style="order:8">
@@ -792,10 +792,10 @@ TEMPLATE = r"""<!doctype html>
     </div>
   </details>
 
-  <p class="hint" style="margin-bottom:22px">Same data in, same list out &mdash; settings
+  <p class="hint spaced">Same data in, same list out &mdash; settings
     fingerprint <code>__R_HASH__</code>.</p>
 
-  <h3 style="margin-bottom:6px">What to distrust</h3>
+  <h3 class="tight">What to distrust</h3>
   <p class="lede">The parser reports its own weak spots. Read this before quoting any number
     from the other screens.</p>
 
@@ -838,7 +838,7 @@ TEMPLATE = r"""<!doctype html>
         rule it documents shows those 30 are an arbitrary slice of a far larger qualified set,
         and that seniority is ignored completely.</p>
       <table class="kv">__Q_GROUNDTRUTH__</table>
-      <div class="note" style="margin-top:14px"><b>Do not report retrieval precision against
+      <div class="note after"><b>Do not report retrieval precision against
         these labels.</b> Unlabelled correct answers are everywhere, so an honest matcher will
         look wrong.</div>
     </div>
@@ -874,7 +874,7 @@ TEMPLATE = r"""<!doctype html>
   <h2>The evidence<br>layer</h2>
   <p class="lede">Showing __POSTINGS_SHOWN__ __SCOPE__. Every title links to the live posting on
     arbeitsagentur.de — this is what any score has to be traceable back to.</p>
-  <div class="note" style="margin:-16px 0 26px"><b>Sorted by how long each posting has been open.</b>
+  <div class="note"><b>Sorted by how long each posting has been open.</b>
     The extreme tail is real but not useful: postings older than roughly two years are records the
     source never delisted, not live demand. The scarcity signal worth acting on sits in the
     90–400 day band — use the age filter.</div>
@@ -908,7 +908,7 @@ TEMPLATE = r"""<!doctype html>
     &mdash; and MarketPull comes from the <em>real German postings</em>, never from synthetic
     openings.</p>
 
-  <div class="note" style="margin:-16px 0 26px"><b>Every person on this screen is synthetic.</b>
+  <div class="note"><b>Every person on this screen is synthetic.</b>
     The bench profile is a deliberate model of a Lithuanian nearshore consultancy &mdash; strong in
     modern software delivery, thin in SAP/embedded &mdash; so the gap against German demand is
     visible instead of flattered away. Swap in the real bench and every number recomputes.</div>
@@ -980,7 +980,7 @@ TEMPLATE = r"""<!doctype html>
     synthetic benchmark dataset. Same treatment as the demand side &mdash; normalised, aggregated,
     and honest about what it can and cannot tell you.</p>
 
-  <div class="note" style="margin:-16px 0 26px"><b>Two things to know before reading any of this.</b>
+  <div class="note"><b>Two things to know before reading any of this.</b>
     The dataset is <em>synthetic and LLM-generated</em>, so the near-uniform distributions below
     measure the generator, not a labour market. And it <em>does not join to the German posting
     data</em>: only __BRIDGE_PCT__% of its skill vocabulary has an equivalent in our German
@@ -1031,14 +1031,14 @@ TEMPLATE = r"""<!doctype html>
       <p class="label">Level</p><h3>Seniority and experience</h3>
       <p class="hint">Note the near-perfect thirds. That is the generator, not a talent pool.</p>
       <div id="t-seniority"></div>
-      <div style="height:16px"></div>
+      <div class="stack"></div>
       <div id="t-experience"></div>
     </div>
     <div class="panel">
       <p class="label">Background</p><h3>Industry and education</h3>
       <p class="hint">Ten industries at roughly 10% each, five education levels at roughly 20% each.</p>
       <div id="t-industry"></div>
-      <div style="height:16px"></div>
+      <div class="stack"></div>
       <div id="t-education"></div>
     </div>
     <div class="panel wide">
