@@ -85,8 +85,9 @@ CONFIG: dict = {
     },
 
     # ---- Evidence attached to every ranked company (ALGORITHM.md 4.7) ----
-    # fresh-first: panels lead with the newest ads
-    "evidence": {"max_postings": 6, "freshest": 4, "oldest": 2},
+    # fresh-first: panels lead with the newest ads; 10 rows feed the
+    # posting timeline in the evidence panel
+    "evidence": {"max_postings": 10, "freshest": 8, "oldest": 2},
 
     # ---- Validation (ALGORITHM.md 7) ----
     "validation": {"perturbation": 0.2, "perturbation_samples": 8, "top_k": 20},
