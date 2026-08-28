@@ -108,15 +108,60 @@ def _evidence(grp: pd.DataFrame) -> str:
             continue
         seen.add(r.posting_id)
         alive = getattr(r, "alive", None)
+        posted = getattr(r, "posted_date", None)
         out.append({
             "title": r.title_clean,
             "url": r.source_url,
             "age": int(getattr(r, age_col)),
             "family": r.role_family,
             "live": None if pd.isna(alive) else bool(alive),
+            "posted": str(posted.date()) if posted is not None and posted == posted else None,
         })
         if len(out) >= e["max_postings"]:
             break
+    return json.dumps(out, ensure_ascii=False)
+
+
+def _timeline(grp: pd.DataFrame) -> str:
+    """Every eligible posting for one company, oldest first -- the series behind
+    the open-roles timeline in the UI.
+
+    The snapshot is a STOCK of ads that were still open on the crawl date, so
+    each posting was demonstrably open from its posted date through to the
+    snapshot: the cumulative count over time is a real open-roles curve. (A
+    per-day posting histogram over the same data is not -- length bias makes
+    posting-date trends meaningless, see the caveats section.)
+
+    `gone` is the day we verified the ad had been taken down, expressed like
+    every other age as days-before-snapshot, so a re-check run after the
+    snapshot is negative. It is the only take-down date we actually observe:
+    between the snapshot and that check we know nothing, and the UI draws that
+    stretch as an explicit gap rather than pretending to a fill date.
+
+    Unlike _evidence this keeps delisted postings -- in a timeline a role that
+    went up and later came down is the point, not a broken citation."""
+    g = grp.copy()
+    g["gone_days"] = pd.NA
+    if "checked_at" in g.columns and "snapshot_date" in g.columns and len(g):
+        snap = g["snapshot_date"].iloc[0]
+        chk = pd.to_datetime(g["checked_at"], utc=True, errors="coerce").dt.tz_localize(None)
+        dead = (g["alive"].astype("boolean") == False).fillna(False)  # noqa: E712
+        g["gone_days"] = (snap - chk).dt.days.where(dead)
+
+    out = []
+    for r in g.sort_values("posting_age_days", ascending=False).itertuples():
+        alive = getattr(r, "alive", None)
+        gone = getattr(r, "gone_days", None)
+        posted = getattr(r, "posted_date", None)
+        out.append({
+            "title": r.title_clean,
+            "url": r.source_url,
+            "age": int(r.posting_age_days),
+            "family": r.role_family,
+            "live": None if pd.isna(alive) else bool(alive),
+            "posted": str(posted.date()) if posted is not None and posted == posted else None,
+            "gone": None if gone is None or pd.isna(gone) else int(gone),
+        })
     return json.dumps(out, ensure_ascii=False)
 
 
@@ -148,6 +193,8 @@ def score(signals: pd.DataFrame, serviceability: pd.DataFrame,
 
     evidence = eligible_pool.groupby("company_key").apply(_evidence, include_groups=False)
     s["evidence"] = s["company_key"].map(evidence)
+    tl = eligible_pool.groupby("company_key").apply(_timeline, include_groups=False)
+    s["timeline"] = s["company_key"].map(tl)
 
     s["config_hash"] = config_hash()
 
