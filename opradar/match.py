@@ -1,7 +1,10 @@
 """Pipeline C -- the join (ALGORITHM_PEOPLE.md 6).
 
 For each eligible company: decompose its postings into demand atoms, test each
-atom against the bench, aggregate to Serviceability(C) in [0, 1].
+atom against the bench, aggregate to Serviceability(C) in [0, 1] (quality of
+coverage) and DealSize(C) in [0, 1] (how many people we could actually place,
+saturating at match.deal_saturation -- a fully-covered single role is still a
+thin contract).
 
 Match rule per atom d:
     role_family equal
@@ -96,7 +99,14 @@ def serviceability(eligible_pool: pd.DataFrame, bench: pd.DataFrame) -> pd.DataF
 
     rows = []
     for key, grp in eligible_pool.groupby("company_key"):
-        weight_sum = score_sum = 0.0
+        # confirmed-delisted postings are not demand anyone can staff: they
+        # are excluded from the atoms entirely, so covered/uncovered counts
+        # and Serviceability describe only the roles still up. A company
+        # whose every ad is gone gets serviceability 0 over 0 atoms.
+        if "alive" in grp.columns:
+            dead = (grp["alive"].astype("boolean") == False).fillna(False)  # noqa: E712
+            grp = grp[~dead.to_numpy(dtype=bool)]
+        weight_sum = score_sum = placeable_w = 0.0
         covered = uncovered = strong = 0
         uncovered_families: dict[str, int] = {}
 
@@ -116,6 +126,7 @@ def serviceability(eligible_pool: pd.DataFrame, bench: pd.DataFrame) -> pd.DataF
             w = _atom_weight(age) * (sw if sw == sw else 1.0)
             weight_sum += w
             score_sum += w * (m["coverage_weight"] * coverage + m["depth_weight"] * depth)
+            placeable_w += w * coverage      # people we could actually put on this
 
             if coverage >= m["strong_coverage"]:
                 strong += 1
@@ -128,6 +139,10 @@ def serviceability(eligible_pool: pd.DataFrame, bench: pd.DataFrame) -> pd.DataF
         rows.append({
             "company_key": key,
             "serviceability": round(score_sum / weight_sum, 4) if weight_sum else 0.0,
+            # deal size: how many people this contract could take, saturating
+            # at deal_saturation -- a 1-person "contract" is not a real deal
+            "placeable_w": round(placeable_w, 2),
+            "deal_size": round(min(1.0, placeable_w / m["deal_saturation"]), 4),
             "atoms_total": covered + uncovered,
             "atoms_covered": covered,
             "atoms_strong": strong,

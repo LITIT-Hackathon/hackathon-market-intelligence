@@ -60,7 +60,7 @@ def v3_sensitivity(signals_scored: pd.DataFrame) -> dict:
         total = sum(w.values())
         need = (w["n1"] * live["n1"] + w["n2"] * live["n2"]
                 + w["n3"] * live["n3"] + w["n4"] * live["n4"]) / total * 100
-        opp = need * live["serviceability"]
+        opp = need * live["serviceability"] * live["deal_size"]
         top = set(live.assign(_o=opp).nlargest(v["top_k"], "_o")["company_key"])
         overlaps.append(len(base_top & top))
 

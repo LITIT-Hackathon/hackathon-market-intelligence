@@ -215,6 +215,8 @@ def build_radar(data_dir: Path) -> dict | None:
          int(r.it_n), int(r.open_45), int(r.open_90), int(r.senior_n),
          int(r.median_age), list(r.top_technologies),
          json.loads(r.evidence) if isinstance(r.evidence, str) else [],
+         int(r.live_n), int(r.dead_n),
+         float(r.deal_size), float(r.placeable_w),
         ]
         for r in live.itertuples()
     ]
@@ -233,7 +235,8 @@ def build_radar(data_dir: Path) -> dict | None:
         "cols": ["rank", "name", "class", "review", "opp", "need",
                  "n1", "n2", "n3", "n4", "svc", "covered", "uncovered",
                  "uncovered_families", "conf", "band", "it_n", "open45",
-                 "open90", "senior_n", "median_age", "techs", "evidence"],
+                 "open90", "senior_n", "median_age", "techs", "evidence",
+                 "live_n", "dead_n", "deal", "placeable"],
         "rows": rows,
         "excluded_rows": excluded,
         "validation": {
@@ -645,7 +648,7 @@ TEMPLATE = r"""<!doctype html>
     <p class="hint">Drag a slider and the ranking re-sorts instantly. Nothing is hardcoded:
       these four things are what decide the order.</p>
     <div class="sliders">
-      <label>Roles sitting unfilled <input type="range" id="w-n1" min="0" max="50" value="35"><b id="wv-n1">35</b></label>
+      <label>Fresh demand <input type="range" id="w-n1" min="0" max="50" value="35"><b id="wv-n1">35</b></label>
       <label>Senior roles they cannot fill <input type="range" id="w-n2" min="0" max="50" value="25"><b id="wv-n2">25</b></label>
       <label>Hiring focused on one technology <input type="range" id="w-n3" min="0" max="50" value="20"><b id="wv-n3">20</b></label>
       <label>Still hiring right now <input type="range" id="w-n4" min="0" max="50" value="20"><b id="wv-n4">20</b></label>

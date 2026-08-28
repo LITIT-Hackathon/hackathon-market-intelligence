@@ -537,7 +537,7 @@ if (D.radar) {
     if (!t) return 0;
     return (W.n1 * rx('n1')(r) + W.n2 * rx('n2')(r) + W.n3 * rx('n3')(r) + W.n4 * rx('n4')(r)) / t * 100;
   };
-  const oppOf = r => needOf(r) * rx('svc')(r);
+  const oppOf = r => needOf(r) * rx('svc')(r) * rx('deal')(r);
   let openKey = null;
 
   const mini = r => {
@@ -550,10 +550,12 @@ if (D.radar) {
      Non-technical readers get the story here; the numbers are the columns. */
   const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
   const plain = r => {
-    const it = rx('it_n')(r), o90 = rx('open90')(r), o45 = rx('open45')(r);
+    const it = rx('it_n')(r), dead = rx('dead_n')(r) || 0, up = it - dead;
+    const o90 = rx('open90')(r), o45 = rx('open45')(r);
     const sen = rx('senior_n')(r), techs = rx('techs')(r);
     const bits = [];
-    bits.push(`${plural(it, 'IT role', 'IT roles')} open`);
+    bits.push(`${plural(up, 'IT role', 'IT roles')} still up`);
+    if (dead) bits.push(`${dead} already taken down`);
     if (o90) bits.push(`${o90} stuck for over 3 months`);
     else if (o45) bits.push(`${o45} open over 6 weeks`);
     if (sen) bits.push(`${plural(sen, 'is senior', 'are senior')}`);
@@ -578,9 +580,9 @@ if (D.radar) {
   /* Plain reasons, driven by the same percentiles that drive the score. */
   const reasons = r => {
     const out = [], techs = rx('techs')(r);
-    const o90 = rx('open90')(r), o45 = rx('open45')(r), sen = rx('senior_n')(r);
+    const o45 = rx('open45')(r), sen = rx('senior_n')(r);
     if (rx('n1')(r) >= 0.7)
-      out.push(`Roles are sitting unfilled far longer than most companies here${o90 ? ` — ${o90} of them past 3 months` : ''}.`);
+      out.push(`Posting new IT roles at a pace few companies here match — this demand is fresh.`);
     else if (o45)
       out.push(`${plural(o45, 'role has', 'roles have')} been open more than 6 weeks.`);
     if (rx('n2')(r) >= 0.7 && sen)
@@ -588,11 +590,27 @@ if (D.radar) {
     if (rx('n3')(r) >= 0.7 && techs.length)
       out.push(`Hiring is concentrated in ${techs[0]} rather than scattered across teams — that looks like one project, not routine backfill.`);
     if (rx('n4')(r) >= 0.7)
-      out.push(`Still posting new roles in the last month, so this is live demand.`);
+      out.push(`Kept posting through the last month — this is live, ongoing demand.`);
     if (!out.length)
-      out.push(`Steady IT hiring, but nothing unusual about how long roles stay open.`);
-    const cov = rx('covered')(r), tot = cov + rx('uncovered')(r);
-    if (tot) out.push(`Our bench could cover ${cov} of ${tot} of these roles.`);
+      out.push(`Steady IT hiring, but nothing unusual about the pace.`);
+    /* Staffing bullet: counts only roles still up (delisted ads are not
+       demand anyone can staff), and explains depth instead of contradicting
+       the "Can we staff it" column. */
+    const cov = rx('covered')(r), tot = cov + rx('uncovered')(r), v = rx('svc')(r);
+    if (!tot)
+      out.push(`Every ad they were running has since been taken down — nothing left to staff today.`);
+    else if (cov === tot && v >= 0.8)
+      out.push(`Our bench covers all ${plural(tot, 'role still up', 'roles still up')}, with depth behind them.`);
+    else if (cov === tot)
+      out.push(`Someone on our bench fits each of the ${tot} roles still up, but depth is thin in places.`);
+    else
+      out.push(`Our bench could cover ${cov} of the ${tot} roles still up.`);
+    /* Deal size: more people on one contract = a better contract. */
+    const deal = rx('deal')(r);
+    if (deal >= 1)
+      out.push(`Team-sized deal: enough staffable roles here to place several people at once.`);
+    else if (deal <= 0.35 && tot)
+      out.push(`Thin deal — only about one placeable role, so it scores lower.`);
     return out;
   };
 

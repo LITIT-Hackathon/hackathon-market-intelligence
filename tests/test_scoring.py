@@ -235,6 +235,56 @@ def test_liveness_status_classification():
     assert classify(None) is None
 
 
+def test_match_ignores_delisted_postings():
+    import pandas as _pd
+    bench = pd.DataFrame([
+        dict(candidate_id="x", role_family="dev", tech_tags=["language", "backend"],
+             seniority="senior", seniority_rank=2, availability="now"),
+    ])
+    pool = pd.DataFrame([
+        # c1: one live covered role + one dead role in a family nobody has --
+        # the dead one must not count as an atom at all
+        dict(company_key="c1", role_family="dev", seniority_rank=2.0,
+             tech_categories=["backend"], posting_age_days=10, alive=True),
+        dict(company_key="c1", role_family="security", seniority_rank=2.0,
+             tech_categories=["security"], posting_age_days=10, alive=False),
+        # c2: every ad delisted -> nothing left to staff
+        dict(company_key="c2", role_family="dev", seniority_rank=2.0,
+             tech_categories=["backend"], posting_age_days=10, alive=False),
+    ])
+    pool["alive"] = pool["alive"].astype("boolean")
+    svc = match.serviceability(pool, bench).set_index("company_key")
+
+    assert svc.loc["c1", "atoms_total"] == 1          # dead atom not counted
+    assert svc.loc["c1", "atoms_uncovered"] == 0      # so nothing "uncovered"
+    assert svc.loc["c1", "serviceability"] > 0.5
+    assert svc.loc["c2", "atoms_total"] == 0
+    assert svc.loc["c2", "serviceability"] == 0.0
+
+
+def test_deal_size_rewards_staffable_volume():
+    bench = pd.DataFrame([
+        dict(candidate_id="x", role_family="dev", tech_tags=["language", "backend"],
+             seniority="senior", seniority_rank=2, availability="now"),
+        dict(candidate_id="y", role_family="dev", tech_tags=["backend"],
+             seniority="senior", seniority_rank=2, availability="now"),
+    ])
+    def atom(key):
+        return dict(company_key=key, role_family="dev", seniority_rank=2.0,
+                    tech_categories=["backend"], posting_age_days=5,
+                    signal_weight=1.0, age_effective=5.0)
+    pool = pd.DataFrame([atom("big")] * 5 + [atom("small")])
+    svc = match.serviceability(pool, bench).set_index("company_key")
+
+    sat = CONFIG["match"]["deal_saturation"]
+    # both are covered perfectly, but five staffable roles saturate the deal
+    # while a single-person contract stays thin
+    assert svc.loc["big", "serviceability"] == svc.loc["small", "serviceability"]
+    assert svc.loc["big", "deal_size"] == 1.0
+    assert abs(svc.loc["small", "deal_size"] - 1.0 / sat) < 1e-6
+    assert svc.loc["big", "deal_size"] > svc.loc["small", "deal_size"]
+
+
 def test_config_hash_is_stable_and_sensitive():
     h1 = config_hash()
     h2 = config_hash()

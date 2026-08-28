@@ -70,6 +70,10 @@ CONFIG: dict = {
         # w_d: fresh-first -- the newest demand matters most, so the bench
         # is graded hardest on whether it can serve what is being asked NOW
         "atom_weight_gt90": 0.3, "atom_weight_gt45": 0.6, "atom_weight_fresh": 1.0,
+        # deal size: a contract is worth more the more people we could put on
+        # it. placeable_w (freshness-weighted staffable roles) saturates here:
+        # ~4 staffable roles = a full team-sized deal, 1 role = a thin one.
+        "deal_saturation": 4,
     },
 
     # ---- Pipeline B: people scoring (ALGORITHM_PEOPLE.md 5) ----

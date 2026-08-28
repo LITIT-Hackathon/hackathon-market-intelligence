@@ -5,7 +5,7 @@ Everything here is arithmetic over the signals table:
     Confidence (reported beside the score, per ALGORITHM.md 4.5 -- the more
     specific instruction wins over the spine's shorthand: confidence is never
     folded into the ranking number)
-    Opportunity = Need x Serviceability
+    Opportunity = Need x Serviceability x DealSize
 
 Every output row carries the config hash. Same hash + same parquet = same
 leaderboard, or something is broken.
@@ -134,7 +134,11 @@ def score(signals: pd.DataFrame, serviceability: pd.DataFrame,
 
     s = s.merge(serviceability, on="company_key", how="left")
     s["serviceability"] = s["serviceability"].fillna(0.0)
-    s["opportunity"] = (s["need"] * s["serviceability"]).round(1)
+    s["deal_size"] = s["deal_size"].fillna(0.0)
+    s["placeable_w"] = s["placeable_w"].fillna(0.0)
+    # deal_size scales the score by how many people the contract could take:
+    # covering one role perfectly is worth less than covering most of five
+    s["opportunity"] = (s["need"] * s["serviceability"] * s["deal_size"]).round(1)
 
     # guardrail: excluded companies stay in the file, flagged with a reason --
     # transparency beats silent disappearance
