@@ -56,8 +56,9 @@ def run(opts: Options) -> dict:
     _log("[2/6] parsing postings")
     df = postings_mod.parse(raw)
     _log(
-        f"      {int(df['is_it_core'].sum()):,} IT postings (KldB 43x) "
-        f"| {int(df['has_tech_signal'].sum()):,} with a tech signal in the title"
+        f"      IT by title (is_it_role): {int(df['is_it_role'].sum()):,} "
+        f"| by KldB (is_it_core): {int(df['is_it_core'].sum()):,} "
+        f"| training roles: {int(df['is_training_role'].sum()):,}"
     )
 
     # -- 3. resolve companies ------------------------------------------------

@@ -195,6 +195,109 @@ def build_talent(data_dir: Path) -> dict | None:
     }
 
 
+def build_radar(data_dir: Path) -> dict | None:
+    """Ranked opportunities + validation. None until the scorer has run."""
+    path = data_dir / "opportunities.parquet"
+    if not path.exists():
+        return None
+    opp = pd.read_parquet(path)
+    checks = json.loads((data_dir / "validation.json").read_text(encoding="utf-8"))
+
+    live = opp[opp["rank"].notna()]
+    rows = [
+        [int(r.rank), r.company_name, r.company_class, bool(r.in_review),
+         float(r.opportunity), float(r.need),
+         round(float(r.n1), 4), round(float(r.n2), 4),
+         round(float(r.n3), 4), round(float(r.n4), 4),
+         float(r.serviceability), int(r.atoms_covered), int(r.atoms_uncovered),
+         json.loads(r.uncovered_families) if isinstance(r.uncovered_families, str) else {},
+         float(r.confidence), r.confidence_band,
+         int(r.it_n), int(r.open_45), int(r.open_90), int(r.senior_n),
+         int(r.median_age), list(r.top_technologies),
+         json.loads(r.evidence) if isinstance(r.evidence, str) else [],
+        ]
+        for r in live.itertuples()
+    ]
+    excluded = [
+        [r.company_name, int(r.it_n), int(r.median_age)]
+        for r in opp[opp["rank"].isna()].itertuples()
+    ]
+    v = checks["companies"]
+    return {
+        "meta": {
+            "ranked": int(len(live)),
+            "excluded": len(excluded),
+            "config_hash": str(live["config_hash"].iloc[0]) if len(live) else "",
+            "weights": dict(__import__("opradar.config", fromlist=["CONFIG"]).CONFIG["need_weights"]),
+        },
+        "cols": ["rank", "name", "class", "review", "opp", "need",
+                 "n1", "n2", "n3", "n4", "svc", "covered", "uncovered",
+                 "uncovered_families", "conf", "band", "it_n", "open45",
+                 "open90", "senior_n", "median_age", "techs", "evidence"],
+        "rows": rows,
+        "excluded_rows": excluded,
+        "validation": {
+            "v1_rho": v["v1_divergence"]["spearman_vs_volume"],
+            "v1_verdict": v["v1_divergence"]["verdict"],
+            "v2": v["v2_adversarial"]["verdict"],
+            "v3_min": v["v3_sensitivity"]["min_overlap"],
+            "v3_k": v["v3_sensitivity"]["top_k"],
+            "v3_verdict": v["v3_sensitivity"]["verdict"],
+        },
+    }
+
+
+def build_bench(data_dir: Path) -> dict | None:
+    """Synthetic bench + people value + gap. None until the scorer has run."""
+    path = data_dir / "people_value.parquet"
+    if not path.exists():
+        return None
+    value = pd.read_parquet(path)
+    cells = pd.read_parquet(data_dir / "cells.parquet")
+    pull = pd.read_parquet(data_dir / "market_pull.parquet")
+    gap = pd.read_parquet(data_dir / "tech_gap.parquet")
+    checks = json.loads((data_dir / "validation.json").read_text(encoding="utf-8"))
+
+    cand_rows = [
+        [int(r.rank), r.candidate_id, r.role_family, r.seniority,
+         int(r.years_experience), list(r.tech_tags), r.availability,
+         bool(r.speaks_german), float(r.value), float(r.market_pull),
+         float(r.scarcity), float(r.deployability), bool(r.thin_cell),
+         int(r.cell_unfilled_45), int(r.cell_depth)]
+        for r in value.itertuples()
+    ]
+    cell_rows = [
+        [r.role_family, r.seniority, int(r.depth), int(r.available_depth),
+         float(r.readiness), bool(r.thin_cell), int(r.unfilled_45),
+         float(r.market_pull), float(r.scarcity)]
+        for r in cells.itertuples()
+    ]
+    fam_pull = pull[pull["seniority"] == "all"]
+    depth_by_family = value.groupby("role_family").size()
+    supply_vs_pull = [
+        [r.role_family, int(depth_by_family.get(r.role_family, 0)),
+         int(r.unfilled_45), int(r.demand_postings)]
+        for r in fam_pull.itertuples()
+    ]
+    return {
+        "meta": {
+            "size": int(len(value)),
+            "cells": int(len(cells)),
+            "thin_cells": int(cells["thin_cell"].sum()),
+            "german_speakers": int(value["speaks_german"].sum()),
+            "people_rho": checks["people"]["value_vs_skill_count_spearman"],
+        },
+        "cand_cols": ["rank", "id", "family", "seniority", "years", "tags",
+                      "availability", "german", "value", "pull", "scarcity",
+                      "deploy", "thin", "cell_unfilled", "cell_depth"],
+        "cand_rows": cand_rows,
+        "cells": cell_rows,
+        "supply_vs_pull": supply_vs_pull,
+        "gap": [[r.category, int(r.demand_postings), int(r.bench_consultants)]
+                for r in gap.itertuples()],
+    }
+
+
 def build_payload(postings: pd.DataFrame, companies: pd.DataFrame, report: dict, scope: str) -> dict:
     flag, scope_label = SCOPES[scope]
     subset = postings if flag is None else postings[postings[flag]]
@@ -350,6 +453,46 @@ def _strip_talent_screens(html: str) -> str:
     return html
 
 
+def _radar_replacements(payload: dict) -> dict:
+    r, b = payload.get("radar"), payload.get("bench")
+    if not r or not b:
+        return {}
+    v, rm, bm = r["validation"], r["meta"], b["meta"]
+    return {
+        "__R_HASH__": rm["config_hash"],
+        "__R_RANKED__": f"{rm['ranked']:,}",
+        "__R_EXCL__": f"{rm['excluded']}",
+        "__R_V1__": f"{v['v1_rho']:.2f}",
+        "__R_V2__": "0" if v["v2"] == "clean" else v["v2"],
+        "__R_V3__": f"{v['v3_min']}/{v['v3_k']}",
+        "__B_SIZE__": f"{bm['size']}",
+        "__B_CELLS__": f"{bm['cells']}",
+        "__B_THIN__": f"{bm['thin_cells']}",
+        "__B_DE__": f"{bm['german_speakers']}",
+        "__B_RHO__": f"{bm['people_rho']:.2f}",
+    }
+
+
+def _strip_radar_screens(html: str) -> str:
+    for tab, label in (("radar", "Radar"), ("bench", "Bench")):
+        html = html.replace(
+            f'    <button data-s="{tab}" aria-selected="true">{label}</button>\n', "")
+        html = html.replace(
+            f'    <button data-s="{tab}" aria-selected="false">{label}</button>\n', "")
+        start = html.find(f'<section class="screen on" id="{tab}">')
+        if start == -1:
+            start = html.find(f'<section class="screen" id="{tab}">')
+        if start != -1:
+            end = html.find("</section>", start) + len("</section>")
+            html = html[:start] + html[end:]
+    # overview becomes the default again
+    html = html.replace('<button data-s="overview" aria-selected="false">Overview</button>',
+                        '<button data-s="overview" aria-selected="true">Overview</button>')
+    html = html.replace('<section class="screen" id="overview">',
+                        '<section class="screen on" id="overview">')
+    return html
+
+
 def render(payload: dict) -> str:
     m, q, o = payload["meta"], payload["quality"], payload["options"]
 
@@ -412,10 +555,13 @@ def render(payload: dict) -> str:
         "__Q_VARIANTS__": variants,
     }
     replacements.update(_talent_replacements(payload))
+    replacements.update(_radar_replacements(payload))
     for key, value in replacements.items():
         html = html.replace(key, value)
     if not payload.get("talent"):
         html = _strip_talent_screens(html)
+    if not payload.get("radar"):
+        html = _strip_radar_screens(html)
     return html
 
 
@@ -441,10 +587,12 @@ TEMPLATE = r"""<!doctype html>
     </div>
   </div>
   <nav>
-    <button data-s="overview" aria-selected="true">Overview</button>
+    <button data-s="radar" aria-selected="true">Radar</button>
+    <button data-s="overview" aria-selected="false">Overview</button>
     <button data-s="companies" aria-selected="false">Companies</button>
     <button data-s="postings" aria-selected="false">Postings</button>
     <button data-s="talent" aria-selected="false">Talent</button>
+    <button data-s="bench" aria-selected="false">Bench</button>
     <button data-s="candidates" aria-selected="false">Candidates</button>
     <button data-s="quality" aria-selected="false">Data quality</button>
   </nav>
@@ -452,8 +600,60 @@ TEMPLATE = r"""<!doctype html>
 
 <main>
 
+
+<!-- ================= RADAR ================= -->
+<section class="screen on" id="radar">
+  <p class="label">Radar &middot; ranked opportunities</p>
+  <h2>Who to call,<br>and why</h2>
+  <p class="lede">Every company below is scored <b>Opportunity = Need &times; Serviceability</b>,
+    with Confidence reported beside the score, never folded into it. Need is four percentile
+    signals over the eligible pool; Serviceability is whether our bench could actually staff
+    the work. Deterministic arithmetic &mdash; config <code>__R_HASH__</code> &mdash; and every
+    row carries clickable evidence.</p>
+
+  <div class="kpis">
+    <div class="kpi"><p class="label">Ranked</p><p class="v num">__R_RANKED__</p><p class="n">companies in the eligible pool</p></div>
+    <div class="kpi"><p class="label">Excluded</p><p class="v num">__R_EXCL__</p><p class="n">by the 90-day recency guard</p></div>
+    <div class="kpi"><p class="label">V1 divergence</p><p class="v num">__R_V1__</p><p class="n">Spearman vs naive volume ranking &mdash; low is good</p></div>
+    <div class="kpi"><p class="label">V2 adversarial</p><p class="v num">__R_V2__</p><p class="n">agencies / NTT entities in the list</p></div>
+    <div class="kpi hl"><p class="label">V3 stability</p><p class="v num">__R_V3__</p><p class="n">of top-20 kept under &plusmn;20% weight changes</p></div>
+  </div>
+
+  <div class="panel" style="margin-bottom:18px">
+    <p class="label">Tunable</p><h3>Need weights</h3>
+    <p class="hint">The weights are a parameter, not a hardcode. Drag &mdash; the ranking
+      recomputes live from the embedded percentile signals. Defaults are the measured
+      values from ALGORITHM.md.</p>
+    <div class="sliders">
+      <label>N1 unmet demand <input type="range" id="w-n1" min="0" max="50" value="35"><b id="wv-n1">35</b></label>
+      <label>N2 seniority pressure <input type="range" id="w-n2" min="0" max="50" value="25"><b id="wv-n2">25</b></label>
+      <label>N3 coherence <input type="range" id="w-n3" min="0" max="50" value="20"><b id="wv-n3">20</b></label>
+      <label>N4 momentum <input type="range" id="w-n4" min="0" max="50" value="20"><b id="wv-n4">20</b></label>
+      <button id="w-reset" class="resetbtn">Reset</button>
+    </div>
+  </div>
+
+  <div class="controls">
+    <input type="search" id="ra-q" placeholder="Search company...">
+    <select id="ra-class"><option value="">All classes</option>
+      <option>end_client</option><option>public_sector</option></select>
+    <select id="ra-band"><option value="">Any confidence</option>
+      <option>high</option><option>medium</option><option>low</option></select>
+    <label class="chk"><input type="checkbox" id="ra-noreview"> Hide review-flagged</label>
+    <span class="count" id="ra-count"></span>
+  </div>
+  <div class="tw"><table><thead id="ra-head"></thead><tbody id="ra-body"></tbody></table></div>
+  <div class="pager" id="ra-pager"></div>
+
+  <div class="note" style="margin-top:18px"><b>How to read a row.</b> Click a company to open
+    its evidence &mdash; the oldest unfilled and freshest postings, each linking to the live ad
+    on arbeitsagentur.de. <em>review</em> marks companies the keyword rules could not
+    confidently classify (the LLM-pass queue); their identity confidence is already discounted.
+    Serviceability &lt; 1.0 means part of their demand sits in categories our bench does not
+    carry &mdash; the uncovered families are listed in the evidence panel.</div>
+</section>
 <!-- ================= OVERVIEW ================= -->
-<section class="screen on" id="overview">
+<section class="screen" id="overview">
   <p class="label">Overview</p>
   <h2>What the market<br>looks like</h2>
   <p class="lede">Everything below comes from the parsed snapshot. No scores, no ranking yet —
@@ -673,6 +873,76 @@ TEMPLATE = r"""<!doctype html>
   <div class="pager" id="ca-pager"></div>
 </section>
 
+
+<!-- ================= BENCH ================= -->
+<section class="screen" id="bench">
+  <p class="label">Bench &middot; people scoring</p>
+  <h2>Who we can<br>deploy</h2>
+  <p class="lede">A <b>synthetic</b> delivery bench of __B_SIZE__ consultants, generated in the
+    German tech vocabulary (option B3) so matching against real demand is a join, not a guess.
+    Each consultant is scored <b>Value = MarketPull &times; Scarcity &times; Deployability</b>
+    &mdash; and MarketPull comes from the <em>real German postings</em>, never from synthetic
+    openings.</p>
+
+  <div class="note" style="margin:-16px 0 26px"><b>Every person on this screen is synthetic.</b>
+    The bench profile is a deliberate model of a Lithuanian nearshore consultancy &mdash; strong in
+    modern software delivery, thin in SAP/embedded &mdash; so the gap against German demand is
+    visible instead of flattered away. Swap in the real bench and every number recomputes.</div>
+
+  <div class="kpis">
+    <div class="kpi"><p class="label">Bench</p><p class="v num">__B_SIZE__</p><p class="n">synthetic consultants</p></div>
+    <div class="kpi"><p class="label">Cells</p><p class="v num">__B_CELLS__</p><p class="n">role family &times; seniority</p></div>
+    <div class="kpi"><p class="label">Thin cells</p><p class="v num">__B_THIN__</p><p class="n">below 5 people &mdash; flagged, not ranked</p></div>
+    <div class="kpi"><p class="label">German speakers</p><p class="v num">__B_DE__</p><p class="n">the hard nearshore constraint</p></div>
+    <div class="kpi"><p class="label">People V1</p><p class="v num">__B_RHO__</p><p class="n">value vs skill-count &rho; &mdash; low means we don't just reward long CVs</p></div>
+  </div>
+
+  <div class="grid">
+    <div class="panel wide">
+      <p class="label">The gap</p><h3>German demand vs bench capability</h3>
+      <p class="hint">Eligible German postings naming each tech category (dark) against bench
+        consultants carrying it (yellow). Where dark towers over yellow &mdash; SAP/erp, embedded,
+        security &mdash; is exactly what the bench cannot serve. This chart is the honest version
+        of Serviceability.</p>
+      <div id="b-gap"></div>
+    </div>
+    <div class="panel">
+      <p class="label">Demand</p><h3>Unfilled German demand by role family</h3>
+      <p class="hint">Postings open &gt;45 days in the eligible pool &mdash; the MarketPull input.</p>
+      <div id="b-pull"></div>
+    </div>
+    <div class="panel">
+      <p class="label">Supply</p><h3>Bench by role family</h3>
+      <p class="hint">Where our capacity actually sits.</p>
+      <div id="b-supply"></div>
+    </div>
+    <div class="panel wide">
+      <p class="label">Cells</p><h3>Supply index &mdash; the Pipeline C hand-off</h3>
+      <p class="hint">One row per role family &times; seniority. Thin cells (&lt;5 people) are
+        flagged: scarcity = 1/depth explodes there, so they are never ranked &mdash; dead code on
+        a 120-person bench in some cells, load-bearing the moment the real bench arrives.</p>
+      <div class="tw" style="max-height:44vh"><table><thead id="ce-head"></thead><tbody id="ce-body"></tbody></table></div>
+      <div class="pager" id="ce-pager"></div><span class="count" id="ce-count" style="display:none"></span>
+    </div>
+    <div class="panel wide">
+      <p class="label">People ranking</p><h3>Bench value</h3>
+      <p class="hint">Value = MarketPull &times; Scarcity &times; Deployability, all percentiled.
+        Multiplicative: a candidate nobody wants, or one we have forty of, is not valuable
+        regardless of the other factors.</p>
+      <div class="controls">
+        <input type="search" id="be-q" placeholder="Search family or tag...">
+        <select id="be-fam"><option value="">All families</option>
+          <option>dev</option><option>data</option><option>ops</option><option>qa</option>
+          <option>analyst</option><option>architect</option><option>security</option><option>support</option></select>
+        <label class="chk"><input type="checkbox" id="be-avail"> Available now / 30d only</label>
+        <span class="count" id="be-count"></span>
+      </div>
+      <div class="tw" style="max-height:56vh"><table><thead id="be-head"></thead><tbody id="be-body"></tbody></table></div>
+      <div class="pager" id="be-pager"></div>
+    </div>
+  </div>
+</section>
+
 <!-- ================= QUALITY ================= -->
 <section class="screen" id="quality">
   <p class="label">Data quality</p>
@@ -790,6 +1060,14 @@ def main(argv: list[str] | None = None) -> int:
     print(f"  building payload (scope={args.scope})", file=sys.stderr)
     payload = build_payload(postings, companies, report, args.scope)
     payload["talent"] = build_talent(args.data)
+    payload["radar"] = build_radar(args.data)
+    payload["bench"] = build_bench(args.data)
+    if payload["radar"]:
+        print(f"  + radar: {payload['radar']['meta']['ranked']} ranked companies, "
+              f"bench {payload['bench']['meta']['size']}", file=sys.stderr)
+    else:
+        print("  no opportunities.parquet — radar screens omitted "
+              "(run `python -m opradar.score`)", file=sys.stderr)
     if payload["talent"]:
         print(f"  + talent data: {payload['talent']['meta']['candidates']:,} candidates, "
               f"{payload['talent']['meta']['skill_vocabulary']} skills", file=sys.stderr)

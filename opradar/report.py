@@ -100,6 +100,17 @@ def build_stats(
             ],
             "it_postings_by_class": _top(it["company_class"], 10),
         },
+        "role_flags": {
+            "it_by_title": int(postings["is_it_role"].sum()),
+            "it_by_kldb": int(postings["is_it_core"].sum()),
+            "agree_both": int((postings["is_it_role"] & postings["is_it_core"]).sum()),
+            "kldb_only": int((~postings["is_it_role"] & postings["is_it_core"]).sum()),
+            "title_only": int((postings["is_it_role"] & ~postings["is_it_core"]).sum()),
+            "training_roles": int(postings["is_training_role"].sum()),
+            "it_and_training": int(
+                (postings["is_it_role"] & postings["is_training_role"]).sum()
+            ),
+        },
         "occupations": {
             "it_core_postings": int(len(it)),
             "it_core_share": round(len(it) / max(len(postings), 1), 4),
@@ -232,6 +243,18 @@ def render_markdown(s: dict) -> str:
         "IT postings by company class:",
         "",
         _table(cl["it_postings_by_class"], "class", "IT postings"),
+        "",
+        "## Interface contract (is_it_role / is_training_role)",
+        "",
+        f"- IT by title: **{s['role_flags']['it_by_title']:,}** | by KldB: "
+        f"{s['role_flags']['it_by_kldb']:,} | both agree: {s['role_flags']['agree_both']:,}",
+        f"- KldB-only (title shows nothing IT): **{s['role_flags']['kldb_only']:,}** | "
+        f"title-only (KldB miscoded): **{s['role_flags']['title_only']:,}**",
+        f"- Training roles: {s['role_flags']['training_roles']:,} "
+        f"(of which {s['role_flags']['it_and_training']:,} are IT apprenticeships -- "
+        "excluded from the eligible pool by design)",
+        "",
+        "> The scorer gates on the title (`is_it_role`); KldB agreement feeds Confidence.",
         "",
         "## Occupations",
         "",

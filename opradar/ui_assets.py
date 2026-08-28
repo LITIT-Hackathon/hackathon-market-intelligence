@@ -139,6 +139,36 @@ a:hover{text-decoration:underline}
 .pager button:hover:not(:disabled){background:var(--ink);color:#fff;border-color:var(--ink)}
 .pager button:disabled{opacity:.35;cursor:default}
 
+/* ---------- radar ---------- */
+.sliders{display:flex;gap:22px;flex-wrap:wrap;align-items:center}
+.sliders label{display:flex;align-items:center;gap:9px;font:400 12.5px var(--sans);color:var(--text)}
+.sliders input[type=range]{width:120px;accent-color:var(--ink)}
+.sliders b{font:600 12px var(--sans);min-width:20px;text-align:right;font-variant-numeric:tabular-nums}
+.resetbtn{font:600 11px var(--sans);letter-spacing:.08em;text-transform:uppercase;
+  border:1px solid var(--line-2);background:var(--paper);border-radius:var(--r-sm);
+  padding:8px 12px;cursor:pointer}
+.resetbtn:hover{background:var(--ink);color:#fff;border-color:var(--ink)}
+.score{font-family:var(--disp);font-weight:700;font-stretch:72%;font-size:19px;letter-spacing:-.01em}
+.mini{display:inline-flex;gap:2px;vertical-align:middle}
+.mini i{width:7px;border-radius:1px;background:var(--line-2);align-self:flex-end}
+.band{display:inline-block;font:600 10px/1 var(--sans);letter-spacing:.06em;text-transform:uppercase;
+  padding:4px 7px;border-radius:4px}
+.band.high{background:var(--ink);color:#fff}
+.band.medium{background:var(--paper-2);color:var(--text);border:1px solid var(--line-2)}
+.band.low{background:transparent;color:var(--muted-2);border:1px dashed var(--line-2)}
+.svcbar{display:inline-block;width:52px;height:8px;background:var(--paper-2);border-radius:2px;
+  overflow:hidden;vertical-align:middle;margin-right:6px}
+.svcbar i{display:block;height:100%;background:var(--ink)}
+.svcbar i.low{background:var(--warn)}
+tr.evrow>td{background:var(--paper-2);padding:14px 16px 16px}
+.evlist{display:grid;gap:6px}
+.evlist a{font:400 12.5px var(--sans)}
+.evlist .age{margin-left:8px}
+.evhead{font:600 11px/1 var(--sans);letter-spacing:.1em;text-transform:uppercase;
+  color:var(--muted);margin:2px 0 8px}
+.uncov{font:400 12px var(--sans);color:var(--warn);margin-top:10px}
+tbody tr.clickable{cursor:pointer}
+
 /* ---------- quality ---------- */
 .q{display:grid;gap:18px;grid-template-columns:repeat(auto-fit,minmax(340px,1fr))}
 .q .panel.span2{grid-column:span 2}
@@ -235,9 +265,15 @@ function makeTable(cfg) {
     state.page = Math.min(state.page, pages - 1);
     const slice = rows.slice(state.page * state.per, (state.page + 1) * state.per);
 
-    body.innerHTML = slice.map(r => '<tr>' + cfg.columns.map(c =>
-      `<td class="${c.cls || ''}${c.r ? ' r' : ''}">${c.render ? c.render(r) : esc(c.v(r) ?? '')}</td>`
-    ).join('') + '</tr>').join('');
+    body.innerHTML = '';
+    slice.forEach(r => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = cfg.columns.map(c =>
+        `<td class="${c.cls || ''}${c.r ? ' r' : ''}">${c.render ? c.render(r) : esc(c.v(r) ?? '')}</td>`
+      ).join('');
+      if (cfg.onRow) cfg.onRow(tr, r);
+      body.appendChild(tr);
+    });
 
     count.innerHTML = `<b>${fmt(rows.length)}</b> of ${fmt(cfg.total)} ${cfg.noun}`;
     pager.innerHTML = pages > 1
@@ -453,4 +489,182 @@ if (D.talent) {
     .forEach(s => { $(s).oninput = renderCands; $(s).onchange = renderCands; });
   renderCands();
 }
+
+/* ---------- radar + bench (only when the scorer has run) ---------- */
+if (D.radar) {
+  const R = D.radar, rIdx = {};
+  R.cols.forEach((c, i) => rIdx[c] = i);
+  const rx = k => r => r[rIdx[k]];
+
+  /* live weights */
+  const W0 = { n1: R.meta.weights.n1, n2: R.meta.weights.n2, n3: R.meta.weights.n3, n4: R.meta.weights.n4 };
+  const W = { ...W0 };
+  const needOf = r => {
+    const t = W.n1 + W.n2 + W.n3 + W.n4;
+    if (!t) return 0;
+    return (W.n1 * rx('n1')(r) + W.n2 * rx('n2')(r) + W.n3 * rx('n3')(r) + W.n4 * rx('n4')(r)) / t * 100;
+  };
+  const oppOf = r => needOf(r) * rx('svc')(r);
+  let openKey = null;
+
+  const mini = r => {
+    const h = v => Math.max(2, Math.round(v * 18));
+    return `<span class="mini" title="N1 ${(rx('n1')(r)*100).toFixed(0)} · N2 ${(rx('n2')(r)*100).toFixed(0)} · N3 ${(rx('n3')(r)*100).toFixed(0)} · N4 ${(rx('n4')(r)*100).toFixed(0)}">`
+      + ['n1','n2','n3','n4'].map(k => `<i style="height:${h(r[rIdx[k]])}px"></i>`).join('') + '</span>';
+  };
+
+  const renderRadar = makeTable({
+    head: '#ra-head', body: '#ra-body', count: '#ra-count', pager: '#ra-pager',
+    total: R.rows.length, noun: 'companies', sort: 1, dir: -1,
+    columns: [
+      { t: '#', v: r => Math.round(oppOf(r)), r: true,
+        render: r => `<b>${R.rows.filter(x => oppOf(x) > oppOf(r)).length + 1}</b>` },
+      { t: 'Opportunity', v: oppOf, r: true,
+        render: r => `<span class="score">${oppOf(r).toFixed(1)}</span>` },
+      { t: 'Company', v: rx('name'), cls: 'nm', render: r =>
+          esc(rx('name')(r)) + (rx('review')(r)
+            ? ' <span class="tag" title="Keyword rules could not confidently classify this company — LLM-pass queue; identity confidence already discounted">review</span>' : '') },
+      { t: 'Class', v: rx('class'), render: r =>
+          `<span class="tag ${rx('class')(r) === 'public_sector' ? 'pub' : ''}">${esc(rx('class')(r).replace(/_/g, ' '))}</span>` },
+      { t: 'Need', v: needOf, r: true, render: r => needOf(r).toFixed(1) + ' ' + mini(r) },
+      { t: 'Serviceability', v: rx('svc'), r: true, render: r => {
+          const v = rx('svc')(r);
+          return `<span class="svcbar"><i class="${v < 0.5 ? 'low' : ''}" style="width:${(v * 100).toFixed(0)}%"></i></span>${v.toFixed(2)}`; } },
+      { t: 'Confidence', v: rx('conf'), r: true,
+        render: r => `<span class="band ${rx('band')(r)}">${rx('band')(r)}</span>` },
+      { t: 'IT', v: rx('it_n'), r: true },
+      { t: '>45d', v: rx('open45'), r: true },
+      { t: '>90d', v: rx('open90'), r: true },
+      { t: 'Top tech', v: rx('techs'), sortKey: r => rx('techs')(r).length,
+        render: r => rx('techs')(r).slice(0, 4).map(t => `<span class="chip">${esc(t)}</span>`).join('') },
+    ],
+    filter: () => {
+      const q = $('#ra-q').value.trim().toLowerCase();
+      const cls = $('#ra-class').value, band = $('#ra-band').value;
+      const noRev = $('#ra-noreview').checked;
+      return R.rows.filter(r =>
+        (!q || rx('name')(r).toLowerCase().includes(q))
+        && (!cls || rx('class')(r) === cls)
+        && (!band || rx('band')(r) === band)
+        && (!noRev || !rx('review')(r)));
+    },
+    onRow: (tr, r) => {
+      tr.classList.add('clickable');
+      tr.onclick = () => {
+        const key = rx('name')(r);
+        openKey = openKey === key ? null : key;
+        renderRadar();
+        if (openKey !== key) return;
+        const anchor = [...document.querySelectorAll('#ra-body tr')]
+          .find(x => x.dataset.ev === key);
+        if (!anchor) return;
+        const ev = rx('evidence')(r), unc = rx('uncovered_families')(r);
+        const row = document.createElement('tr');
+        row.className = 'evrow';
+        row.innerHTML = `<td colspan="11"><div class="evhead">Evidence — `
+          + `${rx('covered')(r)} of ${rx('covered')(r) + rx('uncovered')(r)} demand atoms coverable, `
+          + `median age ${fmt(rx('median_age')(r))}d, ${fmt(rx('senior_n')(r))} senior/lead</div>`
+          + `<div class="evlist">` + ev.map(e =>
+              `<div><a href="${esc(e.url)}" target="_blank" rel="noopener">${esc(e.title)}</a>`
+            + `<span class="age ${e.age > 90 ? 'old' : ''}">${fmt(e.age)}d</span>`
+            + ` <span class="chip">${esc(e.family)}</span></div>`).join('')
+          + `</div>`
+          + (Object.keys(unc).length
+              ? `<div class="uncov">Uncovered demand: ` + Object.entries(unc)
+                  .map(([k, v]) => `${esc(k)} ×${v}`).join(', ')
+                + ` — outside the bench profile</div>` : '')
+          + `</td>`;
+        anchor.after(row);
+      };
+      tr.dataset.ev = rx('name')(r);
+    },
+  });
+
+  const syncW = () => {
+    ['n1', 'n2', 'n3', 'n4'].forEach(k => {
+      W[k] = +$('#w-' + k).value;
+      $('#wv-' + k).textContent = W[k];
+    });
+    openKey = null;
+    renderRadar();
+  };
+  ['n1', 'n2', 'n3', 'n4'].forEach(k => $('#w-' + k).oninput = syncW);
+  $('#w-reset').onclick = () => {
+    ['n1', 'n2', 'n3', 'n4'].forEach(k => $('#w-' + k).value = W0[k]);
+    syncW();
+  };
+  ['#ra-q', '#ra-class', '#ra-band', '#ra-noreview']
+    .forEach(sel => { $(sel).oninput = renderRadar; $(sel).onchange = renderRadar; });
+  renderRadar();
+}
+
+if (D.bench) {
+  const B = D.bench, bIdx = {};
+  B.cand_cols.forEach((c, i) => bIdx[c] = i);
+  const bx = k => r => r[bIdx[k]];
+
+  hbar2($('#b-gap'), B.gap.map(g => {
+    const dMax = Math.max(...B.gap.map(x => x[1]));
+    const bMax = Math.max(...B.gap.map(x => x[2]));
+    return [g[0], g[1] / Math.max(dMax, 1), g[2] / Math.max(bMax, 1)];
+  }));
+  hbar($('#b-pull'), B.supply_vs_pull.map(r => [r[0], r[2], 'acc']).sort((a, b) => b[1] - a[1]));
+  hbar($('#b-supply'), B.supply_vs_pull.map(r => [r[0], r[1], '']).sort((a, b) => b[1] - a[1]));
+
+  /* cells table */
+  const renderCells = makeTable({
+    head: '#ce-head', body: '#ce-body', count: '#ce-count', pager: '#ce-pager',
+    total: B.cells.length, noun: 'cells', sort: 6, dir: -1,
+    columns: [
+      { t: 'Family', v: r => r[0], cls: 'nm' },
+      { t: 'Seniority', v: r => r[1] },
+      { t: 'Depth', v: r => r[2], r: true, render: r =>
+          `${fmt(r[2])}` + (r[5] ? ' <span class="tag noise" title="Below the thin-cell guard: scarcity is not ranked here">thin</span>' : '') },
+      { t: 'Available', v: r => r[3], r: true },
+      { t: 'Readiness', v: r => r[4], r: true, render: r => (r[4] * 100).toFixed(0) + '%' },
+      { t: 'Pull pct', v: r => r[7], r: true, render: r => r[7].toFixed(2) },
+      { t: 'German unfilled >45d', v: r => r[6], r: true },
+      { t: 'Scarcity pct', v: r => r[8], r: true, render: r => r[5] ? '<span style="color:var(--muted-2)">–</span>' : r[8].toFixed(2) },
+    ],
+    filter: () => B.cells,
+  });
+  renderCells();
+
+  /* bench value table */
+  const renderBench = makeTable({
+    head: '#be-head', body: '#be-body', count: '#be-count', pager: '#be-pager',
+    total: B.cand_rows.length, noun: 'consultants', sort: 8, dir: -1,
+    columns: [
+      { t: '#', v: bx('rank'), r: true },
+      { t: 'ID', v: bx('id'), cls: 'nm', render: r =>
+          esc(bx('id')(r)) + ' <span class="tag noise" title="Generated bench — no real person">synthetic</span>' },
+      { t: 'Family', v: bx('family'), render: r => `<span class="tag">${esc(bx('family')(r))}</span>` },
+      { t: 'Seniority', v: bx('seniority') },
+      { t: 'Yrs', v: bx('years'), r: true },
+      { t: 'Tags', v: bx('tags'), sortKey: r => bx('tags')(r).length,
+        render: r => bx('tags')(r).map(t => `<span class="chip">${esc(t)}</span>`).join('') },
+      { t: 'Availability', v: bx('availability'), render: r =>
+          esc(bx('availability')(r)) + (bx('german')(r) ? ' <span class="chip">DE</span>' : '') },
+      { t: 'Value', v: bx('value'), r: true, render: r => `<span class="score">${bx('value')(r).toFixed(1)}</span>` },
+      { t: 'Pull', v: bx('pull'), r: true, render: r => bx('pull')(r).toFixed(2) },
+      { t: 'Scarcity', v: bx('scarcity'), r: true, render: r =>
+          bx('scarcity')(r).toFixed(2) + (bx('thin')(r) ? ' <span class="tag noise">thin</span>' : '') },
+      { t: 'Deploy', v: bx('deploy'), r: true, render: r => bx('deploy')(r).toFixed(2) },
+    ],
+    filter: () => {
+      const q = $('#be-q').value.trim().toLowerCase();
+      const fam = $('#be-fam').value;
+      const avail = $('#be-avail').checked;
+      return B.cand_rows.filter(r =>
+        (!fam || bx('family')(r) === fam)
+        && (!avail || ['now', 'in_30d'].includes(bx('availability')(r)))
+        && (!q || bx('family')(r).toLowerCase().includes(q)
+               || bx('tags')(r).some(t => t.toLowerCase().includes(q))));
+    },
+  });
+  ['#be-q', '#be-fam', '#be-avail']
+    .forEach(sel => { $(sel).oninput = renderBench; $(sel).onchange = renderBench; });
+  renderBench();
+}
+
 """

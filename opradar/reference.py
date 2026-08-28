@@ -189,7 +189,9 @@ CLASS_PATTERNS: list[tuple[str, str]] = [
         CLASS_TRAINING,
         r"bildungszentrum|bildungswerk|bildungsinstitut|bildungsakademie|akademie"
         r"|weiterbildung|umschulung|schulungs|lehrinstitut|kolleg\b|volkshochschule"
-        r"|berufsfoerderungswerk|qualifizierungs",
+        # English "training" in a company name (WBS TRAINING SE was landing in
+        # end_client without it -- Research.txt 9.3)
+        r"|berufsfoerderungswerk|qualifizierungs|training",
     ),
     (
         CLASS_STAFFING,
@@ -231,7 +233,11 @@ CLASS_PATTERNS: list[tuple[str, str]] = [
         r"|akkodis|ferchau|\balten\b|bechtle|computacenter|adesso|msg systems"
         r"|capgemini|accenture|\batos\b|sopra steria|\bcgi\b|infosys|wipro|cognizant"
         r"|deloitte|\bkpmg\b|\bpwc\b|ernst und young|mckinsey|bridgingit|scalian"
-        r"|materna|cancom|\bgisa\b|ntt data|\bcapita\b|\bsopra\b",
+        r"|materna|cancom|\bgisa\b|\bcapita\b|\bsopra\b"
+        # Own group (LITIT = NTT Data x Reiz Tech). Token-bounded "ntt" catches
+        # NTT Germany / NTT Global Data Centers, which "ntt data" missed --
+        # a bare substring would also match Diama-ntt-echnik (Research.txt 9.3).
+        r"|(?<![a-z0-9])ntt(?![a-z0-9])|reiz tech|\blitit\b",
     ),
 ]
 
@@ -363,6 +369,74 @@ TECH_COMPILED = {
     name: (category, re.compile(pattern, re.IGNORECASE))
     for name, (category, pattern) in TECH_PATTERNS.items()
 }
+
+
+# ---------------------------------------------------------------------------
+# IT role and training role detection (ALGORITHM.md interface contract)
+#
+# is_it_role is TITLE-PRIMARY: the title decides whether a posting is an IT job;
+# the KldB code (`is_it_core`) is corroboration feeding Confidence, never a gate.
+# Rationale, measured on this dataset (ALGORITHM.md 4.2, independently verified
+# in Research.txt 9.1): ~1/3 of KldB-43 postings have no IT signal in the title
+# ("Kaufmaennischer Mitarbeiter" coded 43), while ~2,100 real IT jobs sit under
+# broken codes ("Junior Java Entwickler" -> 83113 social work, "DevOps Engineer"
+# -> 28102 textiles). The two error types are not symmetric: a title is direct
+# evidence, a code is an annotation.
+#
+# THIS IS THE SINGLE SOURCE for the lexicon (ALGORITHM.md rule 5). The scorer
+# must consume the columns, never re-implement the pattern: two private
+# implementations drifted 4% apart during verification.
+#
+# Matched against title_fold (lowercased, umlauts expanded), like TECH_PATTERNS.
+# Known deliberate calls:
+#   - bare "administrator" only when the title STARTS a compound with it
+#     (left boundary blocks "Personaladministrator" = HR);
+#   - "web" is token-bounded, never prefix-matched ("Weber" is a weaver);
+#   - "digitalisierung" is included: digitalisation officers are IT-adjacent
+#     buyers, which is the customer this product serves;
+#   - pure hardware roles (Hardwareentwickler) are excluded; embedded/firmware
+#     are included because embedded is one of the 12 tech categories.
+# ---------------------------------------------------------------------------
+
+IT_ROLE_PATTERN = re.compile(
+    rf"{_B}it{_E}|{_B}edv{_E}|informatik|software|entwickler|developer|programmier"
+    rf"|{_B}devops{_E}|sysadmin|systemadministr|netzwerkadministr|datenbankadministr"
+    rf"|{_B}administrator|systemintegration|fachinformatik|wirtschaftsinformatik"
+    rf"|anwendungsbetreu|applikation|application (?:manager|engineer|operations)"
+    rf"|{_B}sap{_E}|{_B}erp{_E}|{_B}crm{_E}|{_B}cloud{_E}"
+    rf"|frontend|backend|fullstack|full.stack|webentwick|{_B}web{_E}"
+    rf"|{_B}java{_E}|{_B}python{_E}|{_B}c#|{_B}c\+\+|\.net{_E}|{_B}php{_E}|{_B}sql{_E}"
+    rf"|{_B}linux{_E}|{_B}citrix{_E}|{_B}vmware{_E}|sharepoint|servicenow|salesforce"
+    # it.sicherheit needs the left boundary or it matches inside
+    # "arbe-its-sicherheit" (occupational safety) -- same trap as the Security
+    # tech pattern
+    rf"|{_B}datev{_E}|cyber|informationssicherheit|{_B}it.sicherheit|netzwerksicherheit"
+    rf"|{_B}siem{_E}|{_B}soc{_E}|pentest|data (?:engineer|scientist|analyst|architect)"
+    rf"|datenanalyst|dateningenieur|machine learning|{_B}ki{_E}|{_B}ai{_E}"
+    rf"|kuenstliche intelligenz|business intelligence|{_B}bi{_E}|{_B}etl{_E}|big data"
+    rf"|kubernetes|docker|terraform|ansible|{_B}aws{_E}|{_B}azure{_E}|{_B}gcp{_E}"
+    rf"|softwaretest|testautomat|qa engineer|scrum|solution architect|software.?architekt"
+    rf"|it.architekt|helpdesk|service.?desk|digitalisierung|embedded"
+    rf"|firmware|mikrocontroller",
+    re.IGNORECASE,
+)
+
+# is_training_role: Ausbildung / duales Studium / Werkstudent / Praktikum
+# (the four categories named in ALGORITHM.md 1). A company hiring apprentices is
+# building capability in-house -- the opposite of an outsourcing trigger --
+# and `seniority_derived` cannot express this: the same postings split across
+# `entry` (~4,000) and `intern` (~1,700).
+#
+# "praktikum|praktikant" is deliberate, NOT the bare stem "praktik": the stem
+# also matches "Heilpraktiker" (a naturopath, neither IT nor training).
+# "trainee" is deliberately absent -- trainee programmes are paid employment,
+# and the contract's list does not include them. Raise with the scorer if that
+# call should change; do not widen silently.
+TRAINING_ROLE_PATTERN = re.compile(
+    rf"ausbildung|auszubildend|{_B}azubi{_E}|duale[sm]? stud|dualstudium"
+    rf"|werkstudent|praktikum|praktikant|studentische",
+    re.IGNORECASE,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -561,3 +635,87 @@ EXPERIENCE_BANDS = [(0, 2, "0-2 yrs"), (3, 5, "3-5 yrs"), (6, 8, "6-8 yrs"), (9,
 # The documented ground-truth rule: a resume is "relevant" when it holds at least
 # this share of a job's must-have skills.
 MATCH_THRESHOLD = 0.6
+
+
+# ---------------------------------------------------------------------------
+# RoleAtom vocabulary (ALGORITHM.md 6 -- the integration contract)
+#
+# Both pipelines emit the same unit:
+#   RoleAtom { role_family, tech_tags (subset of tech categories),
+#              seniority, region }
+#
+# ROLE_FAMILY_PATTERNS is ordered; first hit wins. The fallback for an eligible
+# IT posting that matches nothing specific is "dev" -- by construction these
+# titles passed IT_ROLE_PATTERN, and unclassified IT work is most often
+# development ("Fachinformatiker Anwendungsentwicklung").
+# ---------------------------------------------------------------------------
+
+ROLE_FAMILIES_ATOM = ["dev", "ops", "data", "security", "qa", "architect", "analyst", "support"]
+
+ROLE_FAMILY_PATTERNS: list[tuple[str, str]] = [
+    ("architect", r"architekt|architect"),
+    ("security",  rf"{_B}security|cyber|informationssicherheit|{_B}it.sicherheit"
+                  rf"|netzwerksicherheit|pentest|penetrationstest|{_B}siem{_E}|{_B}soc{_E}"),
+    ("qa",        r"softwaretest|testautomat|testmanag|qa engineer|quality assurance"
+                  r"|test.?(?:engineer|analyst)|{_B}tester"),
+    ("data",      rf"data.?(?:engineer|scientist|analyst|architect)|datenanalyst"
+                  rf"|dateningenieur|business intelligence|{_B}bi{_E}|machine learning"
+                  rf"|{_B}ki{_E}|{_B}ai{_E}|{_B}etl{_E}|big data|datenbankentwickl"),
+    ("support",   r"support|helpdesk|service.?desk|servicetechniker|anwenderbetreu"
+                  r"|user help|hotline"),
+    ("ops",       rf"administrator|{_B}admin{_E}|devops|sysop|systemintegration"
+                  rf"|netzwerk|{_B}network|infrastruktur|rechenzentrum|platform engineer"
+                  rf"|cloud engineer|site reliability|{_B}sre{_E}|systembetreu"),
+    ("analyst",   r"consultant|berater|beratung|analyst|projektmanager|projektleit"
+                  r"|product owner|scrum|requirements|prozessmanager|koordinator"
+                  r"|projektkoordination|manager"),
+    ("dev",       r"."),   # fallback -- see note above
+]
+
+ROLE_FAMILY_COMPILED = [(fam, re.compile(pat, re.IGNORECASE)) for fam, pat in ROLE_FAMILY_PATTERNS]
+
+# Seniority ordering used by the match rule "candidate >= demand - 1".
+# `entry` folds into junior; unknown stays None and the seniority test passes
+# (a posting that states nothing must not auto-fail 70% of the market).
+SENIORITY_RANK = {"entry": 0, "junior": 0, "mid": 1, "senior": 2, "lead": 3}
+
+
+# ---------------------------------------------------------------------------
+# Bench profile (ALGORITHM_PEOPLE.md 4, option B3)
+#
+# The bench is generated in the GERMAN tech vocabulary so Pipeline C is a join
+# by construction. The profile is DELIBERATELY different from German demand --
+# a bench that mirrored demand would match everything and the product would
+# have nothing to say (the "trap in B3"). Shape: a Lithuanian nearshore
+# consultancy strong in modern software delivery (language/backend/data/devops/
+# cloud/quality), thin in security, nearly absent in SAP/erp, absent in
+# embedded and mobile -- which are precisely large German demand categories.
+# The gap IS the product's insight, and it shows up honestly in Serviceability.
+#
+# Family counts sum to the bench size (ALGORITHM_PEOPLE 11/P4: ~100-120
+# specialists is LITIT's stated year-one scale).
+# ---------------------------------------------------------------------------
+
+BENCH_SIZE = 120
+BENCH_SEED = 42          # deterministic: two runs must produce the same bench
+
+# per family: headcount and P(tech_tag) draws
+BENCH_PROFILE: dict[str, dict] = {
+    "dev":       {"n": 44, "tech": [("language", 0.95), ("backend", 0.75), ("frontend", 0.45),
+                                    ("devops", 0.35), ("cloud", 0.30), ("quality", 0.20)]},
+    "data":      {"n": 20, "tech": [("data", 1.00), ("language", 0.60), ("cloud", 0.35),
+                                    ("devops", 0.15)]},
+    "ops":       {"n": 13, "tech": [("platform", 0.70), ("cloud", 0.60), ("devops", 0.55),
+                                    ("network", 0.45)]},
+    "qa":        {"n": 12, "tech": [("quality", 1.00), ("language", 0.40), ("devops", 0.25)]},
+    "analyst":   {"n": 10, "tech": [("data", 0.60), ("erp", 0.25)]},
+    "architect": {"n": 8,  "tech": [("cloud", 0.80), ("backend", 0.70), ("language", 0.60),
+                                    ("security", 0.25)]},
+    "support":   {"n": 7,  "tech": [("platform", 0.60), ("network", 0.40)]},
+    "security":  {"n": 6,  "tech": [("security", 1.00), ("network", 0.50), ("cloud", 0.40)]},
+}
+
+BENCH_SENIORITY = [("junior", 0.28), ("mid", 0.40), ("senior", 0.26), ("lead", 0.06)]
+BENCH_AVAILABILITY = [("now", 0.25), ("in_30d", 0.35), ("in_90d", 0.25), ("unavailable", 0.15)]
+BENCH_GERMAN_RATE = 0.30      # German capability is a hard nearshore constraint
+BENCH_REGIONS = [("LT011", 0.7), ("LT021", 0.2), ("remote_eu", 0.1)]   # Vilnius / Kaunas

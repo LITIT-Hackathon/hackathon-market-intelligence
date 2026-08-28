@@ -229,6 +229,70 @@ def test_qualified_pool_matches_the_documented_rule():
     assert profiles["qualified_for_openings"].tolist() == [1, 1, 0]
 
 
+# ---------------------------------------------------------------------------
+# interface contract: is_it_role / is_training_role (ALGORITHM.md 1, 4.1-4.2)
+# ---------------------------------------------------------------------------
+
+def _flags(title: str) -> tuple[bool, bool]:
+    folded = txt.fold(txt.clean_title(title))
+    return (bool(ref.IT_ROLE_PATTERN.search(folded)),
+            bool(ref.TRAINING_ROLE_PATTERN.search(folded)))
+
+
+def test_is_it_role_catches_miscoded_developers():
+    """The reason the gate is title-primary: these are real rows whose KldB is broken."""
+    for t in ["Junior Java Entwickler (m/w/d)", "Fullstack Developer (m/w/d)",
+              "DevOps Engineer (m/w/d)", "IT-Systemadministrator (m/w/d)",
+              "Fachinformatiker/in - Systemintegration", "SAP Basis Berater (m/w/d)",
+              "Data Engineer im KI Team (m/w/d)", "Softwaretester (m/w/d)",
+              "Mitarbeiter Digitalisierung DATEV/ FAIT (m/w/d)"]:
+        it, _ = _flags(t)
+        assert it, f"{t!r} should be is_it_role"
+
+
+def test_is_it_role_rejects_non_it():
+    for t in ["Berufskraftfahrer (C/CE) im Nahverkehr (m/w/d)",
+              "Fachkraft für Arbeitssicherheit (m/w/d)",
+              "Pflegefachkraft (m/w/d)", "Heilpraktiker (m/w/d)",
+              "Elektroniker Energie- und Gebäudetechnik (m/w/d)",
+              "Weber (m/w/d) Textilproduktion",          # "web" must be token-bounded
+              "Personaladministrator (m/w/d)",           # HR, not IT
+              "Leitende Rezeptionskraft / Front Office-Manager (m/w/d)"]:
+        it, _ = _flags(t)
+        assert not it, f"{t!r} should NOT be is_it_role"
+
+
+def test_is_training_role():
+    for t in ["Ausbildung Fachinformatiker 2027", "Werkstudent KI (m/w/d)",
+              "Praktikum im Marketing", "Duales Studium Informatik (B.Sc.)",
+              "Studentische Aushilfe (m/w/d)"]:
+        _, tr = _flags(t)
+        assert tr, f"{t!r} should be is_training_role"
+    for t in ["Heilpraktiker (m/w/d)",                   # 'praktik' stem trap
+              "Senior Java Entwickler (m/w/d)", "Praxismanager (m/w/d)"]:
+        _, tr = _flags(t)
+        assert not tr, f"{t!r} should NOT be is_training_role"
+    # an IT apprenticeship carries BOTH flags; the scorer's eligibility rule
+    # (is_it_role AND NOT is_training_role) is what excludes it
+    it, tr = _flags("Ausbildung Fachinformatiker Anwendungsentwicklung")
+    assert it and tr
+
+
+def test_own_group_and_training_company_classification():
+    """V2 defects from Research.txt 9.3 -- every NTT entity and WBS TRAINING."""
+    cases = {
+        "NTT DATA Deutschland SE": ref.CLASS_IT_SERVICES,
+        "NTT Germany AG & Co. KG": ref.CLASS_IT_SERVICES,
+        "NTT Global Data Centers EMEA GmbH": ref.CLASS_IT_SERVICES,
+        "WBS TRAINING SE": ref.CLASS_TRAINING,
+        # 'ntt' must be token-bounded: Diama-ntt-echnik is a diamond-tools firm
+        "CCD Diamanttechnik Uwe Gerecke e.K.": ref.CLASS_END_CLIENT,
+    }
+    for name, expected in cases.items():
+        got, _, rule = C.classify_name(name, txt.canonicalise(name))
+        assert got == expected, f"{name!r} -> {got} (rule={rule}), expected {expected}"
+
+
 if __name__ == "__main__":
     failures = 0
     for name, fn in sorted(globals().items()):

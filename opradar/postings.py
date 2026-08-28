@@ -150,6 +150,27 @@ def extract_domains(df: pd.DataFrame, column: str = "title_fold") -> pd.DataFram
     return df
 
 
+def derive_role_flags(df: pd.DataFrame) -> pd.DataFrame:
+    """The two columns of the ALGORITHM.md interface contract.
+
+    is_it_role       -- the TITLE says this is an IT job. Title-primary by design:
+                        the KldB code stays available as `is_it_core` for
+                        corroboration (Confidence input), never as a gate.
+    is_training_role -- Ausbildung / duales Studium / Werkstudent / Praktikum.
+
+    The scorer's eligible posting is:
+        company_class in {end_client, public_sector}
+        AND is_it_role AND NOT is_training_role
+
+    Both patterns live in reference.py -- the single shared lexicon. Do not
+    re-implement them downstream.
+    """
+    folded = df["title_fold"].fillna("")
+    df["is_it_role"] = folded.str.contains(ref.IT_ROLE_PATTERN)
+    df["is_training_role"] = folded.str.contains(ref.TRAINING_ROLE_PATTERN)
+    return df
+
+
 def _seniority_from_title(title_fold: str) -> str | None:
     for label, pattern in ref.SENIORITY_TITLE_PATTERNS:
         if re.search(pattern, title_fold, re.IGNORECASE):
@@ -273,7 +294,7 @@ OUTPUT_COLUMNS = [
     "title", "title_clean",
     "kldb_code", "kldb_sector_code", "kldb_sector", "kldb_group_code", "kldb_group",
     "kldb_subgroup_code", "kldb_level_code", "kldb_level", "kldb_level_label",
-    "is_it_core", "is_it_extended",
+    "is_it_core", "is_it_extended", "is_it_role", "is_training_role",
     "esco_occupation_label", "esco_occupation_uri", "esco_skills_list", "esco_skill_count",
     "technologies", "tech_categories", "tech_count", "has_tech_signal",
     "domains", "domain_count",
@@ -300,6 +321,7 @@ def parse(raw: pd.DataFrame) -> pd.DataFrame:
     df = clean_titles(df)
     df = extract_technologies(df, column="title_fold")
     df = extract_domains(df, column="title_fold")
+    df = derive_role_flags(df)
     df["seniority"] = df["seniority_raw"]
     df = derive_seniority(df)
     df = df.drop(columns=["seniority"])

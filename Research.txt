@@ -516,3 +516,93 @@ Entity resolution  medium.com/tilo-tech/how-to-normalize-company-names-for-dedup
 ================================================================================
 END OF ENTRY 2026-08-28
 ================================================================================
+
+================================================================================
+9. ALGORITHM.md v2 VERIFICATION          [entry 2026-08-28, Gustas]
+================================================================================
+
+Method: every measured claim in ALGORITHM.md re-derived independently against
+data/processed/postings.parquet (current main), with an independently written
+is_it_role lexicon. Where my number differs, the delta is lexicon width, not
+method. Re-run: the script is in this entry's commit context.
+
+9.1 REPRODUCED [VERIFIED]
+    class posting counts        50,502/14,570/3,293/1,732/261/185  EXACT match
+    4.2 confusion matrix        4,872/2,259/2,145/61,267  (doc 4,589/2,542/
+                                2,061/61,351) - same shape, 32% vs 36% of
+                                KldB-IT without title signal. Direction holds.
+    miscoded examples           Java dev->83113, Fullstack->25112,
+                                DevOps->28102: all confirmed at row level
+    KldB 434 absent             confirmed, 0 rows
+    4.1 pool at >=3             340 cos / 2,325 postings (doc 327/2,142)
+    N1 zeros at 45/90/120d      124/196/209 of 340 (doc 113/185/196 of 327)
+                                -> 45d is the only majority-separating
+                                threshold. Design decision CONFIRMED.
+    4.6 recency guard           removes 28 (doc 30)
+    5. coverage                 senior/lead 23.6%, tech 54.5%, corrob 69.2%
+                                (doc 26.3/52.8/69.7)
+    training split              5,797 rows: entry 4,035 / intern 1,661
+                                (doc ~3,957/1,661). is_training_role as its
+                                own column CONFIRMED necessary.
+    T1/T2 queue overlap         0 of 146 T2 companies are in T1 - the two
+                                triggers are genuinely complementary.
+
+9.2 CORRECTION - 3.9 dedup claim is a trap [VERIFIED]
+    858 groups / 1,338 excess rows on (employer,title,posted_date) reproduces
+    EXACTLY. But splitting by region: 857 of 858 groups span MULTIPLE regions.
+    Same-region true duplicates in the whole dataset: ONE row.
+    These are multi-site postings of one role - each with its own posting_id
+    and source_url - i.e. the multi-site footprint SIGNAL, not redundancy.
+    Deduping on (employer,title,date) would delete geographic evidence and
+    undercount distributed programmes. Correct defensive key:
+    (employer,title,date,region), which removes exactly 1 row. DO NOT blanket
+    dedup before counting.
+
+9.3 CORRECTION - V2 fails on current main [VERIFIED]
+    NTT Germany AG & Co. KG (4 rows) and NTT Global Data Centers EMEA GmbH
+    (4 rows) are classified end_client; the lexicon rule matches "ntt data"
+    only. Also WBS TRAINING SE / WBS TRAINING SCHULEN gGmbH (a major training
+    provider) sit in end_client - the training pattern has no English word
+    "training". Both are named, countable V2 defects today. Fix in
+    reference.py: token-bounded "ntt" (must NOT be a bare substring - it
+    matches Diama-ntt-echnik), and "training" in the training pattern.
+    Better still: own_group as a dedicated class - catching our own parent
+    on stage is a stronger demo than silently filing it under competitors.
+
+9.4 CORRECTION - the "\b" ban is DuckDB-only [VERIFIED]
+    3.4's "NEVER USE \b ANYWHERE IN THIS CODEBASE" is correct for DuckDB
+    (RE2 silently ignores \b) and WRONG for Python re, which supports \b
+    fully - our test suite exercises it. Scope the rule: no \b in SQL/DuckDB;
+    Python uses the (?<![a-z0-9]) lookaround convention from reference.py.
+
+9.5 UPDATE - Pipeline B dataset now exists [VERIFIED]
+    ALGORITHM.md 6 says "the dataset does not exist yet". Since c2ff05c the
+    repo carries michaelozon/candidate-matching-synthetic parsed into
+    candidates/openings/skill_market/role_market parquet. Measured against
+    the RoleAtom spec:
+      - skill-level bridge to German extraction: 7 of 73 skills. Dead end.
+      - CATEGORY-level bridge (mapping the 73 skills onto the 12
+        tech_categories): 85% of the 2,949 tech-role candidates produce a
+        non-empty tech_tags set (language 1,826 / devops 1,278 / backend
+        1,267 / data 1,182 / quality 845).
+    => Serviceability is implementable NOW at category granularity.
+    Two honesty constraints: (a) the synthetic bench has NOTHING in erp,
+    cloud, embedded, security, network - which are 5 of the top 7 demand
+    categories in the eligible pool - so Serviceability must report those
+    atoms as uncovered rather than papering over them; (b) the dataset's own
+    "ground truth" labels are a fixed top-30 slice of ~866-candidate pools
+    that ignores seniority (33.6% seniority agreement vs 33% random) - never
+    report retrieval precision against them. Full audit:
+    data/processed/candidate_report.md.
+
+9.6 MINOR
+    - it_intensity > 0.5 (strict) in T2 excludes boundary cases sitting at
+      exactly 0.50 (SmartTECS Cyber Security). Use >=.
+    - N4 denominator count(age<=180) can be zero -> define N4 = 0 there.
+    - The 327-vs-340 pool delta proves the point of the interface contract:
+      is_it_role MUST be one lexicon in reference.py, not two private
+      implementations that drift 4% apart.
+
+================================================================================
+END OF ENTRY 2026-08-28 (verification)
+================================================================================

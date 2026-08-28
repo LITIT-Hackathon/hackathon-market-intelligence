@@ -245,7 +245,8 @@ def build(postings: pd.DataFrame) -> pd.DataFrame:
         name: postings[name].tolist()
         for name in [
             "employer_raw", "company_key_loose", "kldb_sector_code", "kldb_group_code",
-            "region_clean", "country", "is_it_core", "technologies", "posting_age_days",
+            "region_clean", "country", "is_it_core", "is_it_role", "is_training_role",
+            "technologies", "posting_age_days",
             "is_stale_90d", "is_fresh_30d", "seniority_derived", "kldb_level",
         ]
     }
@@ -273,7 +274,12 @@ def build(postings: pd.DataFrame) -> pd.DataFrame:
         regions = [cols["region_clean"][i] for i in idx if _present(cols["region_clean"][i])]
         countries = {cols["country"][i] for i in idx if _present(cols["country"][i])}
 
-        it_idx = [i for i in idx if cols["is_it_core"][i]]
+        # IT slice is TITLE-based per the ALGORITHM.md contract: is_it_role and not
+        # a training posting. KldB (`is_it_core`) is kept as corroboration counts.
+        it_idx = [i for i in idx if cols["is_it_role"][i] and not cols["is_training_role"][i]]
+        core_n = sum(1 for i in idx if cols["is_it_core"][i])
+        training_n = sum(1 for i in idx if cols["is_training_role"][i])
+        corrob_n = sum(1 for i in it_idx if cols["is_it_core"][i])
         tech_counter: Counter = Counter()
         for i in it_idx:
             tech_counter.update(cols["technologies"][i])
@@ -308,6 +314,11 @@ def build(postings: pd.DataFrame) -> pd.DataFrame:
                 "postings": n,
                 "it_postings": len(it_idx),
                 "it_intensity": round(len(it_idx) / n, 4) if n else 0.0,
+                "it_core_postings": core_n,
+                "training_postings": training_n,
+                # share of the company's IT postings where KldB agrees -> the
+                # `corrob` Confidence input (ALGORITHM.md 4.5)
+                "it_corroboration": round(corrob_n / len(it_idx), 4) if it_idx else None,
                 "regions": sorted(set(regions)),
                 "region_count": n_regions,
                 "primary_region": _mode(regions),
@@ -358,6 +369,16 @@ def build(postings: pd.DataFrame) -> pd.DataFrame:
         & (companies["agency_breadth_score"] >= 0.65)
         & (companies["postings"] >= 30)
         & (companies["kldb_sectors"].map(len) >= 6)
+    )
+
+    # T2 (ALGORITHM.md 4.3): small, IT-dense, classified end_client. T1 above only
+    # catches large diversified companies; T2 catches small IT service providers
+    # whose names carry no keyword (inovex, EMOS, BCM...). Measured overlap with
+    # T1: zero -- the triggers are complementary. Both queues feed the LLM pass.
+    companies["needs_review_t2"] = (
+        companies["company_class"].eq(ref.CLASS_END_CLIENT)
+        & (companies["it_intensity"] >= 0.5)
+        & (companies["it_postings"] >= 3)
     )
 
     # Competitors = anyone selling the same placements we would.

@@ -1,5 +1,5 @@
 {
-  "elapsed_s": 42.23,
+  "elapsed_s": 50.98,
   "options": {
     "fuzzy": false,
     "fuzzy_threshold": 0.92,
@@ -484,25 +484,25 @@
   },
   "classification": {
     "by_class": {
-      "end_client": 16705,
+      "end_client": 16692,
       "staffing_agency": 872,
       "public_sector": 449,
-      "it_service_provider": 320,
-      "training_provider": 53,
+      "it_service_provider": 321,
+      "training_provider": 65,
       "individual": 17
     },
     "postings_by_class": {
-      "end_client": 50502,
+      "end_client": 50460,
       "staffing_agency": 14570,
-      "it_service_provider": 3293,
+      "it_service_provider": 3300,
       "public_sector": 1732,
-      "training_provider": 261,
+      "training_provider": 296,
       "individual": 185
     },
-    "competitor_companies": 1192,
-    "competitor_postings": 17863,
-    "competitor_posting_share": 0.2532,
-    "noise_companies": 70,
+    "competitor_companies": 1193,
+    "competitor_postings": 17870,
+    "competitor_posting_share": 0.2533,
+    "noise_companies": 82,
     "needs_review": 61,
     "needs_review_examples": [
       {
@@ -612,21 +612,30 @@
       }
     ],
     "it_postings_by_class": {
-      "end_client": 4867,
+      "end_client": 4863,
       "staffing_agency": 1248,
-      "it_service_provider": 779,
+      "it_service_provider": 781,
       "public_sector": 191,
-      "training_provider": 41,
+      "training_provider": 43,
       "individual": 5
     }
+  },
+  "role_flags": {
+    "it_by_title": 6885,
+    "it_by_kldb": 7131,
+    "agree_both": 4870,
+    "kldb_only": 2261,
+    "title_only": 2015,
+    "training_roles": 5762,
+    "it_and_training": 534
   },
   "occupations": {
     "it_core_postings": 7131,
     "it_core_share": 0.1011,
     "it_extended_postings": 11288,
-    "companies_with_it": 2827,
-    "companies_with_3plus_it": 463,
-    "companies_with_10plus_it": 88,
+    "companies_with_it": 2238,
+    "companies_with_3plus_it": 412,
+    "companies_with_10plus_it": 89,
     "top_kldb_groups": {
       "Mechatronik-, Energie- und Elektroberufe": 8757,
       "Einkaufs-, Vertriebs- und Handelsberufe": 7396,
@@ -762,194 +771,194 @@
     {
       "company": "Finanz Informatik GmbH & Co. KG",
       "class": "end_client",
-      "it_postings": 95,
-      "it_intensity": 0.6985,
+      "it_postings": 87,
+      "it_intensity": 0.6397,
       "median_it_age_days": 30.0
-    },
-    {
-      "company": "Rheinmetall AG",
-      "class": "end_client",
-      "it_postings": 63,
-      "it_intensity": 0.4315,
-      "median_it_age_days": 60.0
     },
     {
       "company": "BWI GmbH",
       "class": "public_sector",
-      "it_postings": 61,
-      "it_intensity": 0.6703,
-      "median_it_age_days": 30.0
+      "it_postings": 57,
+      "it_intensity": 0.6264,
+      "median_it_age_days": 29.0
     },
     {
-      "company": "Siemens Energy Global GmbH & Co. KG",
+      "company": "Rheinmetall AG",
       "class": "end_client",
-      "it_postings": 39,
-      "it_intensity": 0.1364,
-      "median_it_age_days": 74.0
-    },
-    {
-      "company": "Siemens AG",
-      "class": "end_client",
-      "it_postings": 36,
-      "it_intensity": 0.1572,
-      "median_it_age_days": 14.5
+      "it_postings": 44,
+      "it_intensity": 0.3014,
+      "median_it_age_days": 78.0
     },
     {
       "company": "BMW AG",
       "class": "end_client",
-      "it_postings": 36,
-      "it_intensity": 0.1607,
-      "median_it_age_days": 39.5
-    },
-    {
-      "company": "prognum Automotive GmbH",
-      "class": "end_client",
-      "it_postings": 36,
-      "it_intensity": 0.3303,
-      "median_it_age_days": 236.0
+      "it_postings": 38,
+      "it_intensity": 0.1696,
+      "median_it_age_days": 38.5
     },
     {
       "company": "zollsoft GmbH",
       "class": "end_client",
-      "it_postings": 31,
-      "it_intensity": 0.6458,
-      "median_it_age_days": 11.0
+      "it_postings": 35,
+      "it_intensity": 0.7292,
+      "median_it_age_days": 82.0
     },
     {
-      "company": "Deutsche Telekom AG",
+      "company": "prognum Automotive GmbH",
       "class": "end_client",
-      "it_postings": 29,
-      "it_intensity": 0.3085,
-      "median_it_age_days": 44.0
-    },
-    {
-      "company": "OHB-System AG",
-      "class": "end_client",
-      "it_postings": 28,
-      "it_intensity": 0.4118,
-      "median_it_age_days": 28.5
-    },
-    {
-      "company": "Deutsche Bahn AG",
-      "class": "end_client",
-      "it_postings": 27,
-      "it_intensity": 0.0331,
-      "median_it_age_days": 15.0
-    },
-    {
-      "company": "Vodafone GmbH",
-      "class": "end_client",
-      "it_postings": 25,
-      "it_intensity": 0.2083,
-      "median_it_age_days": 9.0
-    },
-    {
-      "company": "SoftwareOne Deutschland GmbH",
-      "class": "end_client",
-      "it_postings": 23,
-      "it_intensity": 0.5897,
-      "median_it_age_days": 7.0
-    },
-    {
-      "company": "T\u00dcV S\u00dcD AG",
-      "class": "end_client",
-      "it_postings": 19,
-      "it_intensity": 0.1056,
-      "median_it_age_days": 25.0
+      "it_postings": 32,
+      "it_intensity": 0.2936,
+      "median_it_age_days": 236.0
     },
     {
       "company": "shoob.de",
       "class": "end_client",
-      "it_postings": 19,
-      "it_intensity": 0.3333,
+      "it_postings": 32,
+      "it_intensity": 0.5614,
       "median_it_age_days": 466.0
     },
     {
-      "company": "Robert Bosch GmbH",
+      "company": "Deutsche Telekom AG",
       "class": "end_client",
-      "it_postings": 18,
-      "it_intensity": 0.1565,
-      "median_it_age_days": 7.5
+      "it_postings": 31,
+      "it_intensity": 0.3298,
+      "median_it_age_days": 31.0
     },
     {
-      "company": "Google Germany GmbH",
+      "company": "Siemens Energy Global GmbH & Co. KG",
       "class": "end_client",
-      "it_postings": 17,
-      "it_intensity": 0.4857,
-      "median_it_age_days": 38.0
+      "it_postings": 29,
+      "it_intensity": 0.1014,
+      "median_it_age_days": 72.0
+    },
+    {
+      "company": "SoftwareOne Deutschland GmbH",
+      "class": "end_client",
+      "it_postings": 28,
+      "it_intensity": 0.7179,
+      "median_it_age_days": 7.0
+    },
+    {
+      "company": "Siemens AG",
+      "class": "end_client",
+      "it_postings": 27,
+      "it_intensity": 0.1179,
+      "median_it_age_days": 11.0
+    },
+    {
+      "company": "KA Resources",
+      "class": "end_client",
+      "it_postings": 24,
+      "it_intensity": 0.96,
+      "median_it_age_days": 3.0
+    },
+    {
+      "company": "Robotron Datenbank-Software GmbH",
+      "class": "end_client",
+      "it_postings": 22,
+      "it_intensity": 0.88,
+      "median_it_age_days": 7.0
     },
     {
       "company": "ANG GmbH",
       "class": "end_client",
-      "it_postings": 16,
+      "it_postings": 21,
+      "it_intensity": 0.875,
+      "median_it_age_days": 1.0
+    },
+    {
+      "company": "Google Germany GmbH",
+      "class": "end_client",
+      "it_postings": 20,
+      "it_intensity": 0.5714,
+      "median_it_age_days": 10.0
+    },
+    {
+      "company": "K4S GmbH",
+      "class": "end_client",
+      "it_postings": 20,
       "it_intensity": 0.6667,
       "median_it_age_days": 1.0
     },
     {
-      "company": "Dirk Rossmann GmbH",
+      "company": "secunet Security Networks AG",
       "class": "end_client",
-      "it_postings": 15,
-      "it_intensity": 0.2727,
-      "median_it_age_days": 32.0
+      "it_postings": 19,
+      "it_intensity": 0.76,
+      "median_it_age_days": 68.0
     },
     {
-      "company": "Tintschl Technik GmbH",
+      "company": "ShaarConsulting",
       "class": "end_client",
-      "it_postings": 15,
-      "it_intensity": 0.3191,
-      "median_it_age_days": 5.0
+      "it_postings": 19,
+      "it_intensity": 0.7917,
+      "median_it_age_days": 18.0
+    },
+    {
+      "company": "Ratbacher GmbH",
+      "class": "end_client",
+      "it_postings": 18,
+      "it_intensity": 0.9474,
+      "median_it_age_days": 67.0
+    },
+    {
+      "company": "Deichmann SE",
+      "class": "end_client",
+      "it_postings": 17,
+      "it_intensity": 0.2073,
+      "median_it_age_days": 22.0
     }
   ],
   "top_it_employers_competitor": [
     {
       "company": "FERCHAU GmbH",
       "class": "it_service_provider",
-      "it_postings": 254
+      "it_postings": 253
     },
     {
       "company": "DIS AG",
       "class": "staffing_agency",
-      "it_postings": 197
+      "it_postings": 189
     },
     {
       "company": "Jan Schreiner Private Arbeitsvermittlung Arbitex",
       "class": "staffing_agency",
-      "it_postings": 189
-    },
-    {
-      "company": "Akkodis Germany Tech Experts GmbH",
-      "class": "it_service_provider",
-      "it_postings": 100
+      "it_postings": 178
     },
     {
       "company": "puro Personaldienstleistung GmbH",
       "class": "staffing_agency",
-      "it_postings": 87
+      "it_postings": 108
     },
     {
-      "company": "Deloitte GmbH",
+      "company": "Akkodis Germany Tech Experts GmbH",
       "class": "it_service_provider",
-      "it_postings": 57
+      "it_postings": 102
+    },
+    {
+      "company": "NTT DATA Business Solutions Global Managed Services GmbH",
+      "class": "it_service_provider",
+      "it_postings": 74
+    },
+    {
+      "company": "PerZukunft Arbeitsvermittlung GmbH&Co.KG",
+      "class": "staffing_agency",
+      "it_postings": 55
     },
     {
       "company": "Brunel GmbH",
       "class": "staffing_agency",
-      "it_postings": 47
+      "it_postings": 54
+    },
+    {
+      "company": "Deloitte GmbH",
+      "class": "it_service_provider",
+      "it_postings": 54
     },
     {
       "company": "NTT DATA Deutschland SE",
       "class": "it_service_provider",
       "it_postings": 45
-    },
-    {
-      "company": "PerZukunft Arbeitsvermittlung GmbH&Co.KG",
-      "class": "staffing_agency",
-      "it_postings": 44
-    },
-    {
-      "company": "Hays Professional Solutions GmbH",
-      "class": "staffing_agency",
-      "it_postings": 42
     }
   ]
 }
