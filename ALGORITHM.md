@@ -1,570 +1,504 @@
 # OpRadar — Algorithm & Code Structure
 
-**Status:** design spec, v1. Written 2026-08-28.
-**Companies pipeline:** every threshold and figure below was measured against
-`data/postings.parquet` (see `Research.txt` for method).
-**People pipeline:** specification only. The dataset does not exist yet — this
-document defines what it must contain so that Part 3 is possible at all.
+**v2, 2026-08-28.** Rewritten against the parser actually in `main`
+(`opradar/`, commit `03583d1`), not the greenfield design of v1.
+
+**Companies pipeline:** every figure below is measured against
+`data/processed/postings.parquet` — the parser's own output — so the numbers
+match what the code will actually see. Method and dataset caveats: `Research.txt`.
+**People pipeline:** specification only. The dataset does not exist yet.
 
 ---
 
-## 0. How to read this
-
-The three parts of the product are not three separate systems. They are three
-factors of one number:
+## 0. The spine
 
 ```
 Opportunity = Need  ×  Serviceability  ×  Confidence
               (Part 1)   (Part 2)          (both)
 ```
 
-| Factor | Question it answers | Source |
+| Factor | Question | Source |
 |---|---|---|
 | **Need** | Does this company have unmet IT hiring demand? | job postings |
 | **Serviceability** | Can we actually deliver against it? | candidate pool |
-| **Confidence** | How much do we trust this row? | evidence volume + entity certainty |
+| **Confidence** | How much do we trust this row? | evidence volume + identity certainty |
 
-Why multiplicative and not a weighted sum: a weighted sum lets a company with
-enormous need but zero serviceability outrank a perfect match. That is exactly
-the wrong answer for a consultancy. Multiplication makes an unservable
-opportunity worth nothing, which is the truth.
-
-Before Part 2 exists, `Serviceability = 1.0` for everyone and the ranking is
-driven purely by Need. The system degrades gracefully and stays demoable at
-every stage of the build.
+Multiplicative, not a weighted sum: a company with huge need we cannot serve is
+worth nothing to a consultancy, and a sum would still rank it top. Before Part 2
+exists, `Serviceability = 1.0` and ranking is driven by Need alone — the system
+stays demoable at every point in the build.
 
 ---
 
-## 1. What the product is
+## 1. Division of labour
 
-For a LITIT salesperson:
+The parser and the scorer are separate programs joined by one file.
 
-> Which DACH company should I contact, why, what do I pitch them,
-> and what evidence backs it?
+| Owner | Modules | Responsibility |
+|---|---|---|
+| **Gustas** | `postings.py`, `companies.py`, `reference.py`, `text.py` | raw → clean, classified postings |
+| **Jokūbas** | `signals.py`, `scoring.py`, `validate.py` | postings → ranked opportunities |
+| both | `classify_llm.py` | the review queue (§4.3) |
 
-Output is a ranked list of companies. Each row carries a score, a full
-decomposition of that score, a named opportunity type, and 3–8 real job
-postings with live `arbeitsagentur.de` links.
+**Interface contract — agree before writing code:**
+
+`data/processed/postings.parquet` gains two boolean columns:
+
+| column | meaning |
+|---|---|
+| `is_it_role` | the title says this is an IT job (§4.2) |
+| `is_training_role` | Ausbildung / duales Studium / Werkstudent / Praktikum |
+
+Nothing else changes. Once those column names are agreed, both halves can be
+built in parallel against the existing file.
 
 ---
 
-## 2. The shared vocabulary (build this FIRST)
+## 2. What the parser already provides
 
-This is the single most important design decision in the project. Both
-pipelines must emit the same canonical unit, or Part 3 is impossible.
+Do not rebuild any of this.
 
-### RoleAtom
+| Need | Column | Notes |
+|---|---|---|
+| identity | `company_key`, `company_name`, `name_variants` | 19,942 strings → 18,416 entities |
+| classification | `company_class`, `class_confidence`, `class_rule` | 6 classes |
+| IT share | `it_intensity` | recompute after §4.2 |
+| occupational diversity | `kldb_sector_entropy` | better than the proxy v1 specified |
+| age | `posting_age_days`, `is_fresh_30d`, `is_stale_90d/180d` | |
+| tech | `technologies`, `tech_categories`, `has_tech_signal` | 12 categories |
+| seniority | `seniority_derived`, `seniority_source` | sparse — see §5 |
+| geography | `region_clean`, `nuts_code`, `country`, `region_population_m` | |
 
-The atom of both demand and supply.
+Three parser decisions that were better than v1's spec and stay:
+
+- **`public_sector` as its own class.** BWI lands there correctly.
+- **The review queue** — high-volume, high-breadth companies the rules cannot
+  call. Extended in §4.3.
+- **KldB requirement level kept as its own dimension**, after it was tested as a
+  seniority source and rejected for labelling ~45% of the market senior.
+
+---
+
+## 3. Eligibility
+
+Straight off `company_class`:
+
+| class | postings | verdict |
+|---|---|---|
+| `end_client` | 50,502 | **prospect** |
+| `public_sector` | 1,732 | **prospect** |
+| `it_service_provider` | 3,293 | partner list — not ranked as prospects |
+| `staffing_agency` | 14,570 | exclude |
+| `training_provider` | 261 | exclude |
+| `individual` | 185 | exclude |
+
+Competitors are not merely discarded. Their IT volume is the **saturation
+signal** — FERCHAU 254 IT postings, DIS AG 197 — telling a salesperson how
+contested a segment already is. This was the parser's idea and it is a better
+one than v1's "exclude and forget".
+
+---
+
+## 4. Pipeline A — Companies
+
+### 4.1 Base set
+
+```
+eligible posting  ⟺  company_class ∈ {end_client, public_sector}
+                  ∧  is_it_role
+                  ∧  ¬is_training_role
+```
+
+**Measured pool:** 1,498 companies have ≥1 eligible IT posting (4,168 postings
+in total). Applying `it_n ≥ 3` gives **327 companies holding 2,142 postings** —
+that is the pool every percentile in §4.4 is computed over. 151 companies reach
+≥5, and 70 reach ≥8.
+
+**Why training roles are excluded.** A company hiring Azubis is building
+capability in-house — the opposite of an outsourcing trigger. Counting them
+inflates exactly the wrong companies.
+
+> `seniority_derived` cannot do this filtering. Ausbildung and Werkstudent
+> postings split across `entry` (3,957) and `intern` (1,661), so excluding
+> `intern` alone leaves ~4,000 apprenticeships in the pool. This is why
+> `is_training_role` must be its own column.
+
+### 4.2 The IT definition — title-primary
+
+**`is_it_role` = the cleaned title matches the IT pattern.** `is_it_core`
+(KldB) becomes *corroboration*, feeding Confidence — not a gate.
+
+The parser's current `is_it_core` is KldB-only. Measured against title evidence
+on its own output:
+
+| | title looks IT | title looks non-IT |
+|---|---|---|
+| `is_it_core` = true | 4,589 | **2,542** |
+| `is_it_core` = false | **2,061** | 61,351 |
+
+36% of the KldB "IT" set has no IT signal in the title — "Kaufmännischer
+Mitarbeiter", "Leitende Rezeptionskraft / Front Office-Manager",
+"Gruppenleitung Order Management" are all coded KldB 43. Meanwhile 2,061 real
+IT jobs are missed: "Junior Java Entwickler" (coded 83113, social work),
+"Fullstack Developer" (25112, vehicle engineering), "DevOps Engineer" (28102,
+textiles).
+
+**The two error types are not symmetric, which is the whole point.** A title
+reading "Java Entwickler" is direct evidence. A KldB code reading 43 while the
+title reads "Rezeptionskraft" is simply wrong. So the title decides, and KldB
+agreement raises confidence.
+
+> **Rejected: `is_it_core AND title_match`.** An earlier version of this
+> document proposed the intersection as "agreement = evidence". It is wrong:
+> it discards the 2,061 genuine IT jobs whose KldB code is broken, shrinking
+> the pool from 327 companies to 212 and losing precisely the miscoded
+> developer roles. Symmetry was assumed rather than tested.
+
+Impact on ranking, from the parser's own top-IT table — share of counted IT
+postings with no title evidence: Deutsche Bahn 20 of 27 (74%), TÜV SÜD 12 of 19,
+Vodafone 15 of 25, Siemens Energy 23 of 39, Rheinmetall 30 of 63. BMW runs the
+other way: 36 by KldB, 48 by title.
+
+### 4.3 Review queue (Stage 3c)
+
+Two triggers, not one.
+
+**T1 — high volume, high breadth** (the parser's existing rule): 61 companies,
+including Siemens Energy, GOLDBECK, Office People, Bankpower. Rules cannot
+separate a staffing firm from a large diversified employer.
+
+**T2 — small, IT-dense, classified `end_client`** — NEW:
+```
+it_intensity > 0.5  ∧  it_n ≥ 3  ∧  company_class = 'end_client'
+```
+T1 only catches large companies. Ranking the current pool by unfilled demand
+surfaces inovex GmbH, EMOS Software, BCM Solutions, WBS IT-Service, SmartTECS
+Engineers and zollsoft near the top — all IT service providers sitting in
+`end_client` because they are small and their names carry no agency keyword.
+Without T2 the leaderboard fills with competitors.
+
+**LLM pass** on both queues. Input: name, `it_intensity`, `postings`,
+`kldb_sector_entropy`, top 15 titles, `region_count`. Output: class +
+one-sentence justification, both persisted. Temperature 0, cached by
+`company_key`.
+
+The one decision that genuinely needs a model: **captive IT subsidiary vs
+commercial IT vendor.** `Finanz Informatik` (Sparkassen IT, 95 IT postings),
+`BWI` (Bundeswehr IT), `Bundesdruckerei` are all IT-dense, so intensity logic
+files them as competitors. They are in-house IT providers who buy external
+delivery capacity as routine — among the best prospects available. Telling them
+apart requires knowing *who the company serves*, which no feature in this
+dataset encodes.
+
+### 4.4 Need signals
+
+Percentile-ranked within the eligible pool, then weighted.
+
+**N1 — unmet demand (35)**
+```
+it_open_45 = count(posting_age_days > 45)
+it_open_90 = count(posting_age_days > 90)
+N1 = 0.6·pct(it_open_45) + 0.4·pct(it_open_90)
+```
+
+> **Thresholds are chosen by measurement, not convention.** Companies in the
+> 327-company pool scoring zero on each candidate threshold:
+>
+> | threshold | companies at zero | share of pool |
+> |---|---|---|
+> | > 45 days | 113 | 35% |
+> | > 90 days | 185 | 57% |
+> | > 120 days | 196 | 60% |
+>
+> A threshold where most of the pool ties at zero cannot rank that pool. 45 days
+> is the only candidate that separates a majority, so it carries the heavier
+> weight; 90 days rides along at 0.4 to reward genuinely long-unfilled roles.
+> 120 days was tested and dropped — it is barely more discriminating than 90.
+>
+> No claim is made here about German average time-to-hire. These thresholds are
+> justified by how they behave on this pool, nothing else. Re-measure if the
+> pool definition changes.
+
+**N2 — seniority pressure (25)**
+```
+it_senior_n = count(seniority_derived ∈ {senior, lead})
+N2 = 0.6·pct(it_senior_n) + 0.4·pct(it_senior_n / it_n)
+```
+Senior roles are hardest to hire and the strongest trigger for buying external
+capacity. Discriminates independently of size: BWI shows 44 senior/lead of 52 IT
+postings; shoob.de shows 0 of 29.
+
+**N3 — coherence (20)**
+```
+HHI = Σ (share of tech_category)²   over postings where has_tech_signal
+N3  = pct( HHI · min(1, it_n/5) · min(1, tech_covered_n/3) )
+```
+Nine SAP roles is a programme with a nameable pitch; nine scattered roles is
+backfill. Two dampers because both counts are small.
+
+> Damping is applied **before** the percentile, not after. Percentile-then-damp
+> would leave N3 on a different scale from N1, N2 and N4 and quietly distort the
+> weighted sum. Every Nᵢ must be a percentile over the same pool.
+
+**N4 — momentum (20)**
+```
+N4 = pct( count(is_fresh_30d) / count(posting_age_days ≤ 180) )
+```
+Proves the company is *still* hiring rather than sitting on abandoned ads.
+
+> N4 reduces dead-listing companies but does not eliminate them: a company
+> scoring 0 on N4 still collects up to 35 points from N1, because old vacancies
+> score highly on exactly the signal N1 measures. The **recency guard in §4.6 is
+> what actually removes them.** shoob.de is the worked example — 29 IT postings,
+> zero within 90 days, zero within 30, median age 466 days. It ranks near the top
+> on unfilled demand and is excluded by the guard, not by N4.
+
+**Context only, never scored:** `it_postings` (volume), `median_it_age_days`,
+`p90_age_days`, `region_count`, competitor saturation.
+
+> **Rejected: market scarcity per technology.** Measured median vacancy age by
+> family: SAP 14d (lowest), web 30d (highest). That does not mean SAP is easy to
+> fill — it means SAP ads are posted more recently and churn faster. One
+> snapshot cannot separate "posted recently" from "filled quickly"; that needs
+> two snapshots and a duration model. A second crawl from the live BA API is the
+> single highest-value upgrade available.
+
+**Normalisation.** Percentile rank *within the eligible pool*, computed strictly
+after §3 — percentiles over a contaminated pool are meaningless. Percentiles
+resist outliers, remove unit mismatches, and speak the user's language: "top 6%
+for unfilled senior demand".
+
+```
+Need = Σ wᵢ·Nᵢ ,  Σwᵢ = 100
+```
+
+### 4.5 Confidence
+```
+evidence = min(1, it_n / 8)                       # 70 of 327 companies reach 8
+recency  = 1.0 if any is_fresh_30d
+           0.7 if any posting ≤ 90d
+           0.4 otherwise
+identity = 1.0 if name_variant_count = 1
+           0.8 if merged variants and class_confidence high
+           0.5 if in the review queue
+corrob   = share of the company's IT postings where is_it_core agrees
+                                                  # pool average 69.7%
+
+Confidence = 0.40·evidence + 0.25·recency + 0.20·identity + 0.15·corrob
+```
+
+> **Caveat on `corrob`.** It rewards agreement between two independent signals,
+> which is real information — but the disagreement is usually the *dataset's*
+> fault, not the company's. A software house whose developer roles are miscoded
+> under textiles gets a lower confidence for a defect it did not cause. Held at
+> the lowest weight for that reason. Drop it entirely if it correlates with
+> anything we care about.
+
+Reported beside the score, never folded into it: *"81, confidence medium — 4
+postings"*. More honest than shrinkage and far easier to defend than a number
+that has been quietly pulled toward the mean.
+
+### 4.6 Guardrails
+
+- `it_n ≥ 3` → 327 companies
+- **at least one posting within 90 days** → removes a further 30, leaving **297
+  ranked companies**. This is the guard that eliminates abandoned listing sets;
+  N4 alone does not (see N4 above).
+- flag contradictory signals rather than averaging them away
+
+### 4.7 Explanation
+
+1. Build a deterministic template containing the real numbers.
+2. The LLM **rewrites that template as prose**. It receives only computed facts.
+   It never sees raw rows and never sources a claim.
+3. Attach 3–8 evidence postings with their live `source_url`.
+
+Any design where the model can invent a signal is disqualifying: one
+hallucinated fact found on stage discredits every number on the screen.
+
+---
+
+## 5. Signal coverage — state these when presenting
+
+Measured inside the ranked pool itself — 327 companies, 2,142 postings:
+
+| signal | coverage | consequence |
+|---|---|---|
+| age (N1, N4) | 100% | reliable |
+| `seniority_derived` ∈ {senior, lead} (N2) | 564 postings, **26.3%** | directional; report coverage |
+| `has_tech_signal` (N3) | 1,130 postings, **52.8%** | HHI over half the evidence |
+| `is_it_core` corroboration | 1,493 postings, **69.7%** | Confidence input only |
+
+N1 and N4 carry near-complete coverage; N2 and N3 do not. If the sensitivity
+check (§7) shows the top 20 moving under small weight changes, shift weight
+toward N1 and N4 rather than tuning the thin signals.
+
+`tech_categories` vocabulary and volumes: data 975, erp 611, language 537,
+embedded 307, quality 277, cloud 253, security 245, backend 237, network 220,
+devops 135, platform 135, frontend 85.
+
+---
+
+## 6. Pipelines B and C — People and Match
+
+**Not measured. Specification only.** Its purpose is to define what the dataset
+must contain so that Part 3 is a join rather than a rescue project.
+
+### The shared vocabulary
+
+Both sides must emit the same unit:
 
 ```
 RoleAtom {
   role_family : dev | ops | data | security | qa | architect | analyst | support
-  tech_tags   : set of {sap, java, dotnet, cloud, data_bi, security,
-                        network, web, erp_crm, ai, other}
+  tech_tags   : subset of the 12 tech_categories above
   seniority   : junior | mid | senior | lead
-  region      : NUTS code (DE1, DE2, ... )
+  region      : NUTS code
 }
 ```
 
-A **job posting** normalises into a RoleAtom = one unit of demand.
-A **candidate** normalises into a RoleAtom = one unit of supply.
-Part 3 joins them on this structure. Nothing else needs to match.
+Demand: one posting → one RoleAtom. Supply: one candidate → one RoleAtom. If the
+people pipeline invents its own skill vocabulary, Part 3 becomes the whole
+hackathon. **Reuse `reference.py`'s technology map — do not write a second one.**
 
-Both pipelines import the same module (`common/taxonomy.py`). If the people
-pipeline invents its own skill vocabulary, the project fails at integration —
-this is the number one integration risk and it costs nothing to avoid.
-
-### Measured tech distribution (companies side, 6,902 IT postings)
-
-| family | postings |
-|---|---|
-| data_bi | 811 |
-| sap | 516 |
-| web | 273 |
-| cloud | 257 |
-| security | 241 |
-| network | 220 |
-| java | 211 |
-| ai | 178 |
-| erp_crm | 143 |
-| dotnet | 133 |
-
-Only ~45% of IT postings carry any identifiable tech token. **Tech tags are
-sparse evidence, never a required field.** Any logic that assumes a stack is
-known will silently drop half the data.
-
----
-
-## 3. PIPELINE A — Companies (demand)
-
-### Stage 0 — Hygiene
-
-- Drop 41 rows with null employer.
-- Collapse 858 exact-duplicate groups (`employer`,`title`,`posted_date`) = 1,338 redundant rows.
-- `vacancy_age_days = snapshot_date − posted_date`, snapshot_date = 2026-06-06.
-- Normalise every title once, centrally:
-  `' ' + re.sub('[^a-z0-9äöüß#+]+',' ', title.lower()) + ' '`
-
-> **Trap:** DuckDB uses RE2, which silently ignores `\b`. `\bsap\b` matches
-> zero rows while `sap` matches 525. Never use `\b` in this codebase. Match
-> against the space-padded token string instead. This bug cost us a full round
-> of wrong numbers.
-
-### Stage 1 — Entity resolution
-
-Normalise: casefold → fold umlauts → strip legal forms
-(`GmbH`, `AG`, `SE`, `KG`, `GmbH & Co. KG`, `mbH`, `oHG`, `e.K.`) →
-collapse whitespace. Handle the doubled-suffix case explicitly
-(`PerZukunft … GmbH&Co.KG GmbH & Co. KG` — merges 904 postings).
-
-**Do not strip** `Group`, `Holding`, `Services`, `Deutschland`, `Niederlassung`
-— they carry meaning and stripping them collapses distinct subsidiaries.
-
-Blocking on the normalised first token keeps matching O(n·k) rather than O(n²)
-over 19,942 names. Keep branches distinct, assign a shared `group_id`
-(all `FERCHAU Niederlassung *`, all `DIS AG *`, all `NTT *`). Classification
-runs at group level; evidence stays at branch level.
-
-### Stage 2 — Role tagging
-
-The dataset's own `esco_occupation`, `esco_skills`, `kldb_2010` and `seniority`
-fields are unreliable (Research.txt §3.2–3.5) and are **not used**. Everything
-is derived from the title:
-
-- **is_IT** — keyword match → 6,902 postings, 2,691 employers
-- **tech_tags** — see §2
-- **seniority** — senior 655, lead 268, architect 495, junior 188
-- **role_family**
-
-**Exclude apprentices, dual-study and Werkstudenten from demand counting**
-(310 + 196 IT postings). A company hiring Azubis is building capability
-in-house — the opposite of an outsourcing trigger. Counting them inflates
-precisely the wrong companies.
-
-> **Rejected:** LLM classification per posting. Measured 57,564 distinct titles
-> across 70,584 rows; the top 2,000 titles cover only 18% of rows. There is no
-> head to exploit — per-title LLM calls cost nearly as much as per-row and buy
-> nothing over keywords. LLM is used at company level only (§Stage 3), where
-> there are ~377 decisions instead of ~70,000.
-
-### Stage 3 — Classification gate
-
-**The stage that decides whether the project succeeds.** Filtering is separate
-from scoring: a company is ruled eligible first, ranked second.
-
-**3a — deterministic exclusion (high precision, no judgement)**
-
-| class | removed | detection |
-|---|---|---|
-| intermediary | 1,720 companies / 1,487 IT postings | name lexicon: `personaldienst`, `zeitarbeit`, `arbeitsvermittlung`, `staffing`, plus brand list (DIS AG, Hays, Michael Page, Manpower, Randstad, Adecco, Akkodis, FERCHAU, Orizon, Amadeus Fire, Brunel, GULP…) |
-| training provider | 52 / 54 | `bildungszentrum`, `akademie`, `alfatraining`, `umschulung` |
-| own group | 5 / 118 | `NTT`, `Reiz Tech` |
-
-**3b — features**
-
-`it_share = it_postings / total_postings`, total volume, occupational
-diversity, region spread, count open >90d, age profile shape.
-
-**3c — LLM classification (~377 companies)**
-
-The name lexicon alone leaks badly — after 3a the top of the list was still
-Deloitte, Computacenter, BridgingIT, ALTEN, EY, secunet, SINTEC. All
-competitors.
-
-`it_share` is the strong discriminator. Filtering to <30% IT share yields
-Siemens Energy, Deutsche Bahn, BMW, AXA, Deutsche Telekom, REWE, HUK-COBURG,
-Rossmann, Vodafone — unmistakably end clients. The logic: a company that also
-hires nurses, drivers and accountants is a company *with* an IT department,
-not an IT company.
-
-Distribution over the 377 companies with ≥3 IT postings:
-
-| IT share | companies |
-|---|---|
-| <10% | 39 |
-| 10–25% | 56 |
-| 25–50% | 77 |
-| 50–80% | 108 |
-| ≥80% | 97 |
-
-So ~205 of 377 are IT firms. The genuine prospect pool is **95–170 companies**.
-
-**But `it_share` alone gets one important class exactly wrong.**
-`Finanz Informatik` (70 IT postings — the Sparkassen group's IT arm),
-`BWI GmbH` (54 — Bundeswehr IT), `Bundesdruckerei` are all high-IT-share, so
-share-based logic discards them as competitors. They are in fact *captive IT
-subsidiaries*: in-house IT providers who buy external delivery capacity as a
-matter of routine. They are among the **best** prospects.
-
-A commercial IT vendor and a captive IT subsidiary are near-identical in this
-data. Telling them apart requires knowing *who the company serves* — world
-knowledge the features cannot supply. **This is the one decision that
-genuinely requires the LLM**, and the reason it is in the design.
-
-Classes emitted:
-
-| class | verdict |
-|---|---|
-| non-IT enterprise with IT dept | prospect |
-| captive / in-house IT subsidiary | **prime prospect** |
-| commercial IT services vendor | competitor → partner list |
-| missed intermediary | exclude |
-
-Input to the model: company name, IT share, total postings, top 15 job titles,
-region spread. Output: class + one-sentence justification, both stored.
-Temperature 0. Cache by company name.
-
-### Stage 4 — Need signals
-
-Computed only over eligible companies, only from trusted fields.
-
-**N1 — Unmet demand (weight 35)**
-```
-open_over_90   = count(IT vacancies with age > 90d)
-open_over_180  = count(IT vacancies with age > 180d)
-N1 = 0.6·pct(open_over_90) + 0.4·pct(open_over_180)
-```
-> **Changed in v1 after testing.** The first version used *median vacancy age*.
-> That is confounded: a company posting many fresh ads shows a low median
-> regardless of how hard its roles are to fill. Median age measures posting
-> cadence, not difficulty. A **count** of vacancies still open past 90 days is
-> a direct observation and survives the confound. Median age is retained for
-> display only.
-
-**N2 — Seniority pressure (weight 25)**
-```
-N2 = 0.6·pct(senior_lead_architect_count) + 0.4·pct(senior_share)
-```
-Senior roles are the hardest to hire and the strongest trigger for buying
-external capacity. This discriminates independently of volume: Deutsche
-Telekom shows 15 senior/lead roles of 27; Rossmann shows 0 of 12. Similar
-size, completely different opportunity.
-
-**N3 — Coherence (weight 20)**
-```
-HHI = Σ (share of tech family)²        over the company's IT postings
-N3  = pct(HHI) · min(1, it_count / 5)
-```
-Nine SAP roles is a programme with a nameable pitch. Nine scattered roles is
-business-as-usual backfill. The volume damper stops a 3-posting company
-scoring 1.0 on concentration by accident.
-
-**N4 — Momentum (weight 20)**
-```
-N4 = pct(postings_last_30d / postings_last_180d)
-```
-Proves the company is *still* hiring rather than sitting on abandoned ads.
-This is the main defence against dead listings.
-
-**Context only — never scored:** total IT volume, median vacancy age, region
-count, market scarcity per tech family.
-
-> **Rejected: market scarcity as a scored signal.** Intended as "how hard is
-> this skill to fill market-wide". Measured median vacancy age by family: SAP
-> 14d (lowest), web 30d (highest). That does not mean SAP is easy — it means
-> SAP ads are posted more recently and churn faster. A single snapshot cannot
-> separate "posted recently" from "filled quickly"; that needs two snapshots
-> and a duration model. Kept as displayed context with an explicit caveat.
-> **If we pull a second snapshot from the live BA API, this becomes properly
-> measurable and is the single highest-value upgrade available.**
-
-**Normalisation.** Every signal → percentile rank *within the eligible pool*.
-Percentiles resist outliers, remove unit problems, and speak the language of
-the user: "top 6% for unfilled senior demand". Percentiles computed over the
-contaminated pool would be meaningless, so this must run strictly after
-Stage 3.
-
-```
-Need = Σ wᵢ · Nᵢ    (weights sum to 100, output 0–100)
-```
-
-### Stage 5 — Confidence
-```
-Confidence = 0.5·evidence_factor + 0.3·recency_factor + 0.2·identity_factor
-
-evidence_factor = min(1, it_count / 8)          # thin evidence → low trust
-recency_factor  = 1 if posting in last 30d, 0.7 if 90d, 0.4 otherwise
-identity_factor = 1.0 clean match | 0.7 fuzzy merge | 0.5 ambiguous
-```
-
-Reported next to the score, never hidden inside it: *"score 81, confidence
-medium — based on 4 postings"*. This is more honest than shrinkage and far
-easier to defend when a judge asks why a small company ranks highly.
-
-### Stage 6 — Guardrails
-
-- ≥3 eligible IT postings (pool: 742 companies at ≥2, 377 at ≥3, 187 at ≥5)
-- ≥1 posting within the last 90 days → 335 companies survive both
-- flag contradictory signals rather than averaging them away
-
-### Stage 7 — Explanation
-
-1. Compute a deterministic template containing the real numbers.
-2. The LLM **rewrites that template into prose**. It receives only the computed
-   facts. It never sees raw data and never sources a claim.
-3. Attach 3–8 evidence postings with live `source_url`s.
-
-Any architecture where the LLM can invent a signal is disqualifying: one
-hallucinated fact discovered live destroys the credibility of every number on
-screen.
-
-### Stage 8 — Output
-
-Ranked prospects with score, decomposition, opportunity type (derived from
-dominant tech family — "SAP delivery capacity", "cloud migration team"),
-evidence, and confidence. Plus the partner list, and the naive volume ranking
-retained as the comparison exhibit.
-
----
-
-## 4. PIPELINE B — People (supply)
-
-**Not yet measured — this is a specification.** Its purpose is to define what
-the dataset must contain. Build the dataset to this shape and Part 3 is nearly
-free; build it to a different shape and Part 3 becomes the whole hackathon.
-
-### Required per candidate
+### Candidate record
 
 ```
 Candidate {
-  candidate_id
-  role_atom        : RoleAtom            # SAME structure as demand, §2
-  years_experience : int
-  availability     : available_now | in_30d | in_90d | unavailable
-  languages        : set                 # German matters — see below
-  location         : region + remote_ok
-  source           : synthetic | consented   # MUST be labelled
+  candidate_id, role_atom, years_experience
+  availability : available_now | in_30d | in_90d | unavailable
+  languages    : set              # German capability is a real nearshore constraint
+  location     : region + remote_ok
+  source       : synthetic | consented        # MUST be labelled in the UI
 }
 ```
 
-### Stages
-
-**P0 — Ingest & validate.** Reject any profile that cannot produce a RoleAtom.
-
-**P1 — Normalise to RoleAtom.** Reuses `common/taxonomy.py` unchanged. This is
-the integration contract.
-
-**P2 — Supply signals, per (role_family, tech, seniority) cell:**
-- `depth` — how many candidates
-- `readiness` — share available now vs in 90 days
-- `bench_pressure` — unallocated capacity, if the notion applies
-
-**P3 — Supply index.** A lookup from RoleAtom cell → depth, readiness. This is
-the only object Part 3 needs from Pipeline B.
-
-### Two constraints that must be honoured
-
-**Synthetic data must be labelled as synthetic in the UI.** A judge who
-suspects generated people are being passed off as real applicants will
-discount every other number on screen. Labelling it costs one line and buys
-credibility.
-
-**German language capability is a real constraint on nearshore delivery** and
-belongs in the candidate schema. We cannot detect a German-language
-requirement from job titles, so this stays a stated limitation on the demand
-side — but the supply side should carry it.
-
----
-
-## 5. PIPELINE C — Match
-
-For company `C` with demand atoms `D`, and supply index `S`:
-
+### Match
 ```
-for each demand atom d in D:
-    coverage(d) = 1 if S has ≥1 candidate matching
-                    (role_family, tech ∩ ≠ ∅, seniority ≥ d.seniority − 1)
-                  else partial credit for adjacent seniority
+for each demand atom d:
+    coverage(d) = 1 if ≥1 candidate matches (role_family, tech ∩ ≠ ∅,
+                       seniority ≥ d.seniority − 1); partial credit adjacent
     depth(d)    = min(1, matching_candidates / 3)
 
-Serviceability(C) = Σ wᵈ · (0.7·coverage(d) + 0.3·depth(d)) / Σ wᵈ
+Serviceability = Σ wᵈ·(0.7·coverage + 0.3·depth) / Σ wᵈ
 ```
+`wᵈ` weights each atom by its own N1 contribution — an unfilled senior role we
+can staff matters far more than a junior role we cannot.
 
-where `wᵈ` weights each demand atom by its own unmet-demand contribution — an
-unfilled senior role we can staff counts for far more than a junior role we
-cannot.
+Sales framing: *"Siemens Energy has 11 IT roles open past 90 days, 3 senior,
+concentrated in data. We have 5 matching data engineers free within 30 days."*
 
-```
-Opportunity(C) = Need(C) × Serviceability(C) × Confidence(C)
-```
-
-**Output framing for sales:** *"AXA has 4 IT roles open over 90 days, 3 of
-them senior, concentrated in data/BI. We have 5 matching data engineers
-available within 30 days."* Demand pain is a lead. Demand pain matched to
-available supply is a deal.
-
-**Degradation:** with no supply data, `Serviceability = 1.0` and the ranking
-falls back to pure Need. Nothing breaks.
-
----
-
-## 6. Output artifact (the contract between pipeline and UI)
-
-The pipeline is a **batch job producing a file**. The API only reads that file.
-Scoring never runs inside a request handler — a bad data edge case must never
-be able to take down a live demo.
-
-SQLite, `data/opradar.db`:
-
-```
-companies(company_id, canonical_name, group_id, class, class_reason,
-          total_postings, it_postings, it_share, regions, archetype)
-
-scores(company_id, need, serviceability, confidence, opportunity,
-       n1_unmet, n2_seniority, n3_coherence, n4_momentum,
-       rank, rank_naive_volume)
-
-evidence(company_id, posting_id, title, posted_date, age_days,
-         tech_tags, seniority, region, source_url)
-
-narratives(company_id, opportunity_type, summary_text, generated_at)
-
-supply_index(role_family, tech, seniority, depth, readiness)   -- Part 2
-
-matches(company_id, coverage, depth, serviceability)           -- Part 3
-
-meta(key, value)   -- snapshot_date, weights hash, pipeline version
-```
-
-Agree this schema before either of you writes a line. Commit a hand-written
-fake `opradar.db` immediately so the UI can be built against real-shaped data
-before the pipeline produces any.
+**Two constraints.** Synthetic candidates must be labelled synthetic on screen —
+a judge who suspects generated people are being passed off as real applicants
+discounts every other number. And if real candidate data is ever used, it is EU
+personal data: consented only, and say so on the limitations slide.
 
 ---
 
 ## 7. Validation without ground truth
 
-There are no labels, so "accuracy" is unavailable. Three checks that are honest
-and demoable:
+No labels exist, so accuracy is unavailable. Three checks that are honest and
+demoable:
 
-**V1 — Divergence from volume, measured.** Spearman rank correlation between
-our ranking and pure vacancy count. It must be **low**. If our top 20 is
-largely the volume top 20, we have failed the brief's central constraint.
-Reporting this number converts "we don't rank by volume" from a claim into
-evidence. Store it in `meta`.
+**V1 — divergence from volume, measured.** Spearman correlation between the
+final ranking and `it_postings`. It must be **low**. If our top 20 is largely
+the volume top 20 we have failed the brief's central constraint. Persist it and
+put it on a slide: it turns "we don't rank by volume" from a claim into a number.
 
-**V2 — Adversarial check.** No intermediary, no competitor, no NTT entity may
-appear in the customer list. Each one that does is a named, countable defect.
+**V2 — adversarial.** No staffing agency, no IT service provider, no NTT entity
+may appear in the prospect list. Each one that does is a named, countable defect.
 Invite judges to hunt for one.
 
-**V3 — Sensitivity.** Perturb weights ±20% and check whether the top 20 holds.
-If small changes reshuffle the leaderboard, the weights are doing the work
-rather than the signals — and "why 35 and not 30?" becomes an unanswerable
-question on stage.
+**V3 — sensitivity.** Perturb weights ±20%; check whether the top 20 holds. If
+small changes reshuffle it, the weights are doing the work the signals should be
+doing — and "why 35 and not 30?" becomes unanswerable on stage.
 
 ---
 
 ## 8. Code structure
 
+Extends the existing package; nothing is restructured.
+
 ```
-OpRadar/
-├── ALGORITHM.md
-├── Research.txt
-├── config/
-│   ├── weights.yaml                 # all tunables, nothing hardcoded
-│   └── lexicons/
-│       ├── intermediaries.txt       # agency names + brands
-│       ├── training.txt
-│       ├── own_group.txt
-│       ├── legal_forms.txt
-│       ├── tech_taxonomy.yaml       # tech family → keywords
-│       ├── role_families.yaml
-│       └── seniority.yaml
-├── data/                            # gitignored: parquet in, opradar.db out
-├── src/opradar/
-│   ├── common/
-│   │   ├── taxonomy.py       # RoleAtom, tag_tech, tag_seniority, tag_role
-│   │   │                     # ← BOTH pipelines import this. Build first.
-│   │   ├── text.py           # tokenize_title, normalize_company, fold_umlauts
-│   │   ├── stats.py          # percentile_rank, hhi, weighted_sum
-│   │   └── db.py             # artifact read/write
-│   ├── companies/
-│   │   ├── s0_ingest.py      # load parquet, dedupe, ages
-│   │   ├── s1_entities.py    # normalize + block + merge → company_id
-│   │   ├── s2_roles.py       # postings → RoleAtoms
-│   │   ├── s3_classify.py    # 3a lexicon, 3b features
-│   │   ├── s3_llm.py         # 3c LLM classifier, cached, temp 0
-│   │   ├── s4_signals.py     # N1..N4 + context metrics
-│   │   ├── s5_score.py       # percentiles, Need, Confidence
-│   │   ├── s6_guards.py      # thresholds, contradiction flags
-│   │   └── s7_explain.py     # template → LLM prose → evidence
-│   ├── people/
-│   │   ├── p0_ingest.py
-│   │   ├── p1_profiles.py    # → RoleAtoms via common.taxonomy
-│   │   └── p2_supply.py      # supply_index
-│   ├── match/
-│   │   └── m1_match.py       # coverage, depth, Serviceability
-│   ├── validate/
-│   │   └── checks.py         # V1 V2 V3
-│   ├── api/
-│   │   └── main.py           # FastAPI, READ-ONLY over opradar.db
-│   └── cli.py                # opradar build | validate | serve
-├── web/                      # leaderboard, company detail, evidence
-└── tests/
-    ├── test_text.py          # incl. the RE2 \b regression
-    ├── test_entities.py      # PerZukunft merge case
-    └── test_scoring.py
+opradar/
+  reference.py      lexicons, KldB maps, technology map      [exists]
+  text.py           folding, legal forms, title cleaning     [exists]
+  loading.py        raw ingest                               [exists]
+  postings.py       MODIFY: add is_it_role, is_training_role
+  companies.py      MODIFY: it_intensity from is_it_role
+  classify_llm.py   NEW: review queues T1+T2, cached, temp 0
+  signals.py        NEW: per-company IT-restricted aggregates
+  scoring.py        NEW: percentiles, Need, Confidence, Opportunity
+  validate.py       NEW: V1, V2, V3
+  pipeline.py       MODIFY: wire the new stages
+  report.py         extend: score decomposition
+  ui.py             extend: decomposition + evidence links
 ```
 
-### Design rules
+### Rules
 
-1. **Every stage reads a file and writes a file.** Any stage can be re-run
-   alone. Debugging at hour 20 depends on this.
-2. **No tunable is hardcoded.** All weights and thresholds live in
-   `weights.yaml`, hashed into `meta` so any result is reproducible.
-3. **The API never computes a score.** It reads `opradar.db`. A broken
-   pipeline run then costs you yesterday's data, not the demo.
-4. **LLM calls are cached to disk and run at temperature 0.** Two runs must
-   produce the same leaderboard, or the demo is a coin flip.
-5. **`common/taxonomy.py` is the integration contract.** Neither pipeline may
-   define its own skill vocabulary.
+1. **Every stage reads a file and writes a file.** Any stage re-runnable alone —
+   this is what makes debugging at hour 20 possible. The parser already does this.
+2. **No tunable hardcoded.** Weights and thresholds in one config, hashed into
+   the output so any result is reproducible.
+3. **The UI never computes a score.** It reads the artifact. A broken pipeline
+   run costs yesterday's data, not the demo.
+4. **LLM calls cached to disk, temperature 0.** Two runs must produce the same
+   leaderboard or the demo is a coin flip.
+5. **`reference.py` is the shared vocabulary.** Neither pipeline defines a
+   second technology map.
+6. **Do not commit generated parquet.** `postings.parquet` (8.2 MB) and
+   `companies.parquet` (1.7 MB) are currently tracked; `.gitignore` does not
+   apply to already-tracked files. `git rm --cached data/processed/*.parquet`.
+   Keep `parse_report.md` tracked — it is worth diffing between runs.
 
 ### Build order
 
 ```
-common/taxonomy.py + text.py     ← both people depend on this; do it together
+is_it_role + is_training_role         ← unblocks everything; do first
         ↓
-s0 → s1 → s2 → s3 → s4 → s5 → s6 → s7      artifact exists, demo is possible
+signals.py → scoring.py               ← artifact exists, demo possible
         ↓
-web + api against the artifact              ← parallel, different owner
+classify_llm.py (T1+T2)               ← removes competitors from the top
         ↓
-validate/checks.py                          ← V1 is a demo slide, not a test
+ui.py + report.py                     ← parallel, different owner
         ↓
-people/ → match/                            ← only after companies is shippable
+validate.py                           ← V1 is a demo slide, not just a test
+        ↓
+people/ → match/                      ← only after Part 1 is shippable
 ```
 
-Part 1 alone satisfies every minimum requirement in the challenge README.
-Parts 2 and 3 are the differentiator, but they are worth nothing if Part 1 is
-not finished and demoable. Cut Part 3 down, never Part 1.
+Part 1 alone satisfies every minimum requirement in the challenge README. Parts 2
+and 3 are the differentiator but are worth nothing if Part 1 is not demoable.
+Cut Part 3 down, never Part 1.
 
 ---
 
-## 9. Known limitations (state these before a judge finds them)
+## 9. Known limitations
 
-1. **Single snapshot.** All postings scraped in one ~2h window on 2026-06-06.
-   No true time series exists, so no hiring-velocity claim is made anywhere in
-   this system. Month-over-month counts from this file measure vacancy
-   survival, not hiring demand.
-2. **Survivorship bias.** Older months contain only postings still unfilled
-   today. This is why Need uses counts of currently-open vacancies rather than
-   historical rates.
-3. **One source.** 100% Bundesagentur für Arbeit. Companies that do not post
-   there are invisible — likely biasing against startups and senior/executive
-   hiring.
-4. **DACH is really DE.** 355 Austrian rows, 2 Swiss, out of 70,584.
-5. **No firmographics.** No revenue, headcount or industry. Company size is
-   proxied by total posting volume, which is weak.
-6. **No job description text.** `description_derived` is 100% null, so tech
-   stack comes from titles alone and is present for only ~45% of IT postings.
-7. **Dataset's own enrichment fields are unreliable** and deliberately unused
-   (Research.txt §3.2–3.5).
+1. **Single snapshot** — all postings crawled in one ~2h window on 2026-06-06.
+   No true time series exists, so this system makes no hiring-velocity claim
+   anywhere. Counting by `posted_date` measures vacancy survival, not demand.
+2. **Survivorship bias** — older months contain only what is still unfilled.
+   Hence counts of currently-open vacancies, never historical rates.
+3. **One source** — 100% Bundesagentur für Arbeit. Companies that do not post
+   there are invisible, likely biasing against startups and executive hiring.
+4. **DACH is really DE** — 355 Austrian rows, 2 Swiss, of 70,543.
+5. **No firmographics** — no revenue, headcount or industry. Size is proxied by
+   posting volume, which is weak.
+6. **No job description text** — `description_derived` is 100% null, so
+   technology comes from titles alone: ~52% coverage inside the eligible pool.
+7. **The dataset's own enrichment is unreliable** — ESCO labels are wrong at row
+   level ("DevOps Engineer" → *knitting machine supervisor*), `esco_skills` is a
+   fixed top-5 for 99.99% of rows, `seniority` is 88% unknown. None is used as
+   ground truth.
 8. **Entity resolution is approximate.** Explicitly permitted by the README.
-9. **Abandoned listings.** A very old open posting may be neglected rather than
-   unfilled. Mitigated by the momentum signal and the 90-day recency guard,
-   not eliminated.
-10. **Language requirement invisible.** A German-language-mandatory role is
-    harder to serve from Lithuania, and titles do not reveal it.
+9. **Abandoned listings** — a very old posting may be neglected rather than
+   unfilled. Mitigated by N4 and the recency guard, not eliminated.
+10. **Language requirement invisible** — a German-mandatory role is harder to
+    serve from Lithuania, and titles do not reveal it.
+11. **Regional counts reflect crawl coverage** as much as labour demand
+    (parser's own caveat). Normalise before any regional comparison.
 
 ---
 
@@ -572,8 +506,8 @@ not finished and demoable. Cut Part 3 down, never Part 1.
 
 | # | Question | Blocks |
 |---|---|---|
-| Q1 | Competitors — exclude, or surface as a partner list? | Stage 3 output shape |
-| Q2 | May we call the live BA API? Enables a second snapshot (→ real duration analysis) and full description text | N-signal upgrade, stretch goal |
+| Q1 | Competitors — partner list, or plain exclusion? | §3 output shape |
+| Q2 | May we call the live BA API? Enables a second snapshot → real duration analysis, and full description text | N-signal upgrade, stretch goal |
 | Q3 | LITIT's actual delivery stack | turns "hiring IT" into "hiring OUR stack" |
 | Q4 | People dataset — bench, or open candidate pool? | Pipeline B semantics |
 | Q5 | Judging rubric weightings | effort allocation |
