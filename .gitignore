@@ -12,3 +12,6 @@ ui/index.html
 __pycache__/
 *.pyc
 .venv/
+
+# local editor/tooling config
+.claude/

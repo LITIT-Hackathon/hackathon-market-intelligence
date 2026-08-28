@@ -57,6 +57,21 @@ main{background:var(--paper);border-radius:var(--r) var(--r) 0 0;padding:38px 32
 .kpi.hl{background:var(--accent)}
 .kpi.hl .label,.kpi.hl .n{color:rgba(26,28,27,.72)}
 
+/* ---------- progressive disclosure ----------
+   Three tiers: the three numbers that answer the page's question stay visible;
+   everything else is one click away. NN/g/Few: a header full of competing
+   figures gets skipped entirely, so fewer numbers are read more. */
+details.more{margin:-20px 0 32px}
+details.more summary{cursor:pointer;font:500 12.5px var(--sans);color:var(--muted);
+  padding:8px 0;list-style:none;display:inline-flex;align-items:center;gap:7px}
+details.more summary::-webkit-details-marker{display:none}
+details.more summary::before{content:"+";font-weight:700;font-size:14px;line-height:1;
+  width:16px;height:16px;border:1px solid var(--line-2);border-radius:4px;
+  display:inline-flex;align-items:center;justify-content:center}
+details.more[open] summary::before{content:"–"}
+details.more summary:hover{color:var(--ink)}
+details.more .kpis{margin-top:10px}
+
 /* ---------- panels + charts ---------- */
 .grid{display:grid;gap:18px;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));margin-bottom:18px}
 .panel{border:1px solid var(--line);border-radius:var(--r-sm);padding:20px 20px 22px;background:var(--paper)}
@@ -149,6 +164,18 @@ a:hover{text-decoration:underline}
   padding:8px 12px;cursor:pointer}
 .resetbtn:hover{background:var(--ink);color:#fff;border-color:var(--ink)}
 .score{font-family:var(--disp);font-weight:700;font-stretch:72%;font-size:19px;letter-spacing:-.01em}
+/* company cell: name on top, a plain sentence underneath */
+.cname{font-weight:600;font-size:14px}
+.csub{display:block;margin-top:3px;font:400 12.5px/1.45 var(--sans);color:var(--muted);max-width:52ch}
+.tag.warn{background:#fff4d6;border-color:#e8c766;color:#6b5200}
+td .z{color:var(--muted-2)}
+.evwhy{margin-bottom:14px}
+.evwhy ul{margin:6px 0 0;padding-left:18px;display:grid;gap:5px}
+.evwhy li{font:400 13px/1.5 var(--sans);color:var(--ink)}
+details.adv{margin:20px 0 4px;border:1px solid var(--line);border-radius:8px;padding:12px 14px;background:var(--paper)}
+details.adv summary{cursor:pointer;font:600 13px var(--sans);color:var(--muted)}
+details.adv[open] summary{margin-bottom:10px;color:var(--ink)}
+.svctxt{display:block;font:400 11.5px var(--sans);color:var(--muted);margin-top:3px;white-space:nowrap}
 .mini{display:inline-flex;gap:2px;vertical-align:middle}
 .mini i{width:7px;border-radius:1px;background:var(--line-2);align-self:flex-end}
 .band{display:inline-block;font:600 10px/1 var(--sans);letter-spacing:.06em;text-transform:uppercase;
@@ -266,10 +293,13 @@ function makeTable(cfg) {
     const slice = rows.slice(state.page * state.per, (state.page + 1) * state.per);
 
     body.innerHTML = '';
-    slice.forEach(r => {
+    slice.forEach((r, i) => {
+      /* position within what the reader is actually looking at, not the whole set --
+         a filtered list that starts at "3" reads like a bug */
+      const pos = state.page * state.per + i + 1;
       const tr = document.createElement('tr');
       tr.innerHTML = cfg.columns.map(c =>
-        `<td class="${c.cls || ''}${c.r ? ' r' : ''}">${c.render ? c.render(r) : esc(c.v(r) ?? '')}</td>`
+        `<td class="${c.cls || ''}${c.r ? ' r' : ''}">${c.render ? c.render(r, pos) : esc(c.v(r) ?? '')}</td>`
       ).join('');
       if (cfg.onRow) cfg.onRow(tr, r);
       body.appendChild(tr);
@@ -291,7 +321,10 @@ function makeTable(cfg) {
 /* ---------- nav ---------- */
 document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
   document.querySelectorAll('nav button').forEach(x => x.setAttribute('aria-selected', x === b));
-  document.querySelectorAll('.screen').forEach(s => s.classList.toggle('on', s.id === b.dataset.s));
+  /* Sections are grouped: one nav tab can reveal several stacked sections. */
+  document.querySelectorAll('.screen').forEach(s =>
+    s.classList.toggle('on', (s.dataset.g || s.id) === b.dataset.s));
+  window.scrollTo(0, 0);
   window.scrollTo(0, 0);
 });
 
@@ -509,44 +542,100 @@ if (D.radar) {
 
   const mini = r => {
     const h = v => Math.max(2, Math.round(v * 18));
-    return `<span class="mini" title="N1 ${(rx('n1')(r)*100).toFixed(0)} · N2 ${(rx('n2')(r)*100).toFixed(0)} · N3 ${(rx('n3')(r)*100).toFixed(0)} · N4 ${(rx('n4')(r)*100).toFixed(0)}">`
+    return `<span class="mini" title="Unfilled ${(rx('n1')(r)*100).toFixed(0)} · Senior ${(rx('n2')(r)*100).toFixed(0)} · Focus ${(rx('n3')(r)*100).toFixed(0)} · Active ${(rx('n4')(r)*100).toFixed(0)}">`
       + ['n1','n2','n3','n4'].map(k => `<i style="height:${h(r[rIdx[k]])}px"></i>`).join('') + '</span>';
+  };
+
+  /* One plain-English line describing what is happening at this company.
+     Non-technical readers get the story here; the numbers are the columns. */
+  const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+  const plain = r => {
+    const it = rx('it_n')(r), o90 = rx('open90')(r), o45 = rx('open45')(r);
+    const sen = rx('senior_n')(r), techs = rx('techs')(r);
+    const bits = [];
+    bits.push(`${plural(it, 'IT role', 'IT roles')} open`);
+    if (o90) bits.push(`${o90} stuck for over 3 months`);
+    else if (o45) bits.push(`${o45} open over 6 weeks`);
+    if (sen) bits.push(`${plural(sen, 'is senior', 'are senior')}`);
+    let s = bits.join(', ') + '.';
+    if (techs.length) {
+      s += ` Mostly ${techs.slice(0, 2).join(' and ')}.`;
+    }
+    const v = rx('svc')(r);
+    if (v < 0.5) s += ` We could only staff ${staffLabel(v)}.`;
+    return s;
+  };
+
+  /* Serviceability in words. The number is a ratio nobody reads correctly;
+     the label is what a salesperson actually needs. */
+  const staffLabel = v =>
+    v >= 0.8 ? 'nearly all of it'
+  : v >= 0.6 ? 'most of it'
+  : v >= 0.35 ? 'about half'
+  : v > 0 ? 'only part of it'
+  : 'none of it';
+
+  /* Plain reasons, driven by the same percentiles that drive the score. */
+  const reasons = r => {
+    const out = [], techs = rx('techs')(r);
+    const o90 = rx('open90')(r), o45 = rx('open45')(r), sen = rx('senior_n')(r);
+    if (rx('n1')(r) >= 0.7)
+      out.push(`Roles are sitting unfilled far longer than most companies here${o90 ? ` — ${o90} of them past 3 months` : ''}.`);
+    else if (o45)
+      out.push(`${plural(o45, 'role has', 'roles have')} been open more than 6 weeks.`);
+    if (rx('n2')(r) >= 0.7 && sen)
+      out.push(`Heavy on senior and lead roles (${sen}) — the hardest and slowest to hire.`);
+    if (rx('n3')(r) >= 0.7 && techs.length)
+      out.push(`Hiring is concentrated in ${techs[0]} rather than scattered across teams — that looks like one project, not routine backfill.`);
+    if (rx('n4')(r) >= 0.7)
+      out.push(`Still posting new roles in the last month, so this is live demand.`);
+    if (!out.length)
+      out.push(`Steady IT hiring, but nothing unusual about how long roles stay open.`);
+    const cov = rx('covered')(r), tot = cov + rx('uncovered')(r);
+    if (tot) out.push(`Our bench could cover ${cov} of ${tot} of these roles.`);
+    return out;
   };
 
   const renderRadar = makeTable({
     head: '#ra-head', body: '#ra-body', count: '#ra-count', pager: '#ra-pager',
-    total: R.rows.length, noun: 'companies', sort: 1, dir: -1,
+    total: R.rows.length, noun: 'companies', sort: 5, dir: -1,   /* 5 = Score */
     columns: [
       { t: '#', v: r => Math.round(oppOf(r)), r: true,
-        render: r => `<b>${R.rows.filter(x => oppOf(x) > oppOf(r)).length + 1}</b>` },
-      { t: 'Opportunity', v: oppOf, r: true,
-        render: r => `<span class="score">${oppOf(r).toFixed(1)}</span>` },
+        render: (r, pos) => `<b>${pos}</b>` },
       { t: 'Company', v: rx('name'), cls: 'nm', render: r =>
-          esc(rx('name')(r)) + (rx('review')(r)
-            ? ' <span class="tag" title="Keyword rules could not confidently classify this company — LLM-pass queue; identity confidence already discounted">review</span>' : '') },
-      { t: 'Class', v: rx('class'), render: r =>
-          `<span class="tag ${rx('class')(r) === 'public_sector' ? 'pub' : ''}">${esc(rx('class')(r).replace(/_/g, ' '))}</span>` },
-      { t: 'Need', v: needOf, r: true, render: r => needOf(r).toFixed(1) + ' ' + mini(r) },
-      { t: 'Serviceability', v: rx('svc'), r: true, render: r => {
+          `<span class="cname">${esc(rx('name')(r))}</span>`
+          + (rx('review')(r)
+            ? ' <span class="tag warn" title="We could not confirm from the data whether this is a customer or an IT supplier. Check before calling.">unconfirmed</span>' : '')
+          + (rx('band')(r) === 'low'
+            ? ' <span class="tag" title="Based on only a few job ads">thin evidence</span>' : '')
+          + `<span class="csub">${esc(plain(r))}</span>` },
+      { t: 'Focus', v: rx('techs'), sortKey: r => rx('techs')(r).length,
+        render: r => rx('techs')(r).slice(0, 3).map(t => `<span class="chip">${esc(t)}</span>`).join('') },
+      { t: 'Open 6+ weeks', v: rx('open45'), r: true,
+        render: r => rx('open45')(r) ? `<b>${rx('open45')(r)}</b>` : '<span class="z">0</span>' },
+      { t: 'Can we staff it', v: rx('svc'), r: true, render: r => {
           const v = rx('svc')(r);
-          return `<span class="svcbar"><i class="${v < 0.5 ? 'low' : ''}" style="width:${(v * 100).toFixed(0)}%"></i></span>${v.toFixed(2)}`; } },
-      { t: 'Confidence', v: rx('conf'), r: true,
-        render: r => `<span class="band ${rx('band')(r)}">${rx('band')(r)}</span>` },
-      { t: 'IT', v: rx('it_n'), r: true },
-      { t: '>45d', v: rx('open45'), r: true },
-      { t: '>90d', v: rx('open90'), r: true },
-      { t: 'Top tech', v: rx('techs'), sortKey: r => rx('techs')(r).length,
-        render: r => rx('techs')(r).slice(0, 4).map(t => `<span class="chip">${esc(t)}</span>`).join('') },
+          return `<span class="svcbar"><i class="${v < 0.5 ? 'low' : ''}" style="width:${(v*100).toFixed(0)}%"></i></span>`
+               + `<span class="svctxt">${staffLabel(v)}</span>`; } },
+      { t: 'Score /100', v: oppOf, r: true,
+        render: r => `<span class="score">${Math.round(oppOf(r))}</span>${mini(r)}` },
     ],
     filter: () => {
       const q = $('#ra-q').value.trim().toLowerCase();
       const cls = $('#ra-class').value, band = $('#ra-band').value;
       const noRev = $('#ra-noreview').checked;
-      return R.rows.filter(r =>
+      const out = R.rows.filter(r =>
         (!q || rx('name')(r).toLowerCase().includes(q))
         && (!cls || rx('class')(r) === cls)
         && (!band || rx('band')(r) === band)
         && (!noRev || !rx('review')(r)));
+      /* headline numbers describe what is on screen -- a header saying 306
+         above a list of 109 reads as a bug to anyone who is not us */
+      const sum = k => out.reduce((a, r) => a + rx(k)(r), 0);
+      $('#k-ranked').textContent = fmt(out.length);
+      $('#k-roles').textContent = fmt(sum('it_n'));
+      $('#k-stuck').textContent = fmt(sum('open45'));
+      return out;
     },
     onRow: (tr, r) => {
       tr.classList.add('clickable');
@@ -561,18 +650,19 @@ if (D.radar) {
         const ev = rx('evidence')(r), unc = rx('uncovered_families')(r);
         const row = document.createElement('tr');
         row.className = 'evrow';
-        row.innerHTML = `<td colspan="11"><div class="evhead">Evidence — `
-          + `${rx('covered')(r)} of ${rx('covered')(r) + rx('uncovered')(r)} demand atoms coverable, `
-          + `median age ${fmt(rx('median_age')(r))}d, ${fmt(rx('senior_n')(r))} senior/lead</div>`
+        row.innerHTML = `<td colspan="6">`
+          + `<div class="evwhy"><div class="evhead">Why this company</div><ul>`
+          + reasons(r).map(t => `<li>${esc(t)}</li>`).join('') + `</ul></div>`
+          + `<div class="evhead">The actual job ads &mdash; click to open</div>`
           + `<div class="evlist">` + ev.map(e =>
               `<div><a href="${esc(e.url)}" target="_blank" rel="noopener">${esc(e.title)}</a>`
-            + `<span class="age ${e.age > 90 ? 'old' : ''}">${fmt(e.age)}d</span>`
+            + `<span class="age ${e.age > 90 ? 'old' : ''}">open ${fmt(e.age)} days</span>`
             + ` <span class="chip">${esc(e.family)}</span></div>`).join('')
           + `</div>`
           + (Object.keys(unc).length
-              ? `<div class="uncov">Uncovered demand: ` + Object.entries(unc)
+              ? `<div class="uncov">We could not staff: ` + Object.entries(unc)
                   .map(([k, v]) => `${esc(k)} ×${v}`).join(', ')
-                + ` — outside the bench profile</div>` : '')
+                + ` &mdash; not skills our bench currently has</div>` : '')
           + `</td>`;
         anchor.after(row);
       };
@@ -630,26 +720,48 @@ if (D.bench) {
   });
   renderCells();
 
+  /* Say out loud what the ranking is based on. The three factors are the
+     score; showing them as bare 0-1 decimals told the reader nothing. */
+  const bandWord = v =>
+    v >= 0.75 ? '<b>high</b>' : v >= 0.45 ? 'medium' : '<span class="z">low</span>';
+  const availWord = a => ({
+    now: 'now', in_30d: 'in 30 days', in_90d: 'in 90 days', unavailable: 'not available'
+  }[a] || a);
+  const benchPlain = r => {
+    const sen = bx('seniority')(r), fam = bx('family')(r), yrs = bx('years')(r);
+    const tags = bx('tags')(r), pull = bx('pull')(r), scar = bx('scarcity')(r);
+    let s = `${sen} ${fam}, ${yrs} yrs`;
+    if (tags.length) s += ` — ${tags.slice(0, 2).join(' and ')}`;
+    s += '.';
+    s += pull >= 0.75 ? ' German companies badly need this skill'
+       : pull >= 0.45 ? ' There is steady German demand for this'
+       : ' German demand for this is thin';
+    s += scar >= 0.75 ? ', and we have very few people like this.'
+       : scar >= 0.45 ? ', and we are not deep in it.'
+       : ', and we already have plenty of them.';
+    return s;
+  };
+
   /* bench value table */
   const renderBench = makeTable({
     head: '#be-head', body: '#be-body', count: '#be-count', pager: '#be-pager',
-    total: B.cand_rows.length, noun: 'consultants', sort: 8, dir: -1,
+    total: B.cand_rows.length, noun: 'consultants', sort: 6, dir: -1,   /* 6 = Score */
     columns: [
-      { t: '#', v: bx('rank'), r: true },
-      { t: 'ID', v: bx('id'), cls: 'nm', render: r =>
-          esc(bx('id')(r)) + ' <span class="tag noise" title="Generated bench — no real person">synthetic</span>' },
-      { t: 'Family', v: bx('family'), render: r => `<span class="tag">${esc(bx('family')(r))}</span>` },
-      { t: 'Seniority', v: bx('seniority') },
-      { t: 'Yrs', v: bx('years'), r: true },
-      { t: 'Tags', v: bx('tags'), sortKey: r => bx('tags')(r).length,
+      { t: '#', v: bx('rank'), r: true, render: (r, pos) => `<b>${pos}</b>` },
+      { t: 'Consultant', v: bx('id'), cls: 'nm', render: r =>
+          `<span class="cname">${esc(bx('id')(r))}</span>`
+          + ' <span class="tag noise" title="Generated bench — no real person">synthetic</span>'
+          + (bx('german')(r) ? ' <span class="tag">speaks German</span>' : '')
+          + `<span class="csub">${esc(benchPlain(r))}</span>` },
+      { t: 'Skills', v: bx('tags'), sortKey: r => bx('tags')(r).length,
         render: r => bx('tags')(r).map(t => `<span class="chip">${esc(t)}</span>`).join('') },
-      { t: 'Availability', v: bx('availability'), render: r =>
-          esc(bx('availability')(r)) + (bx('german')(r) ? ' <span class="chip">DE</span>' : '') },
-      { t: 'Value', v: bx('value'), r: true, render: r => `<span class="score">${bx('value')(r).toFixed(1)}</span>` },
-      { t: 'Pull', v: bx('pull'), r: true, render: r => bx('pull')(r).toFixed(2) },
-      { t: 'Scarcity', v: bx('scarcity'), r: true, render: r =>
-          bx('scarcity')(r).toFixed(2) + (bx('thin')(r) ? ' <span class="tag noise">thin</span>' : '') },
-      { t: 'Deploy', v: bx('deploy'), r: true, render: r => bx('deploy')(r).toFixed(2) },
+      { t: 'Available', v: bx('availability'), render: r => esc(availWord(bx('availability')(r))) },
+      { t: 'German demand for this', v: bx('pull'), r: true,
+        render: r => bandWord(bx('pull')(r)) },
+      { t: 'How rare on our bench', v: bx('scarcity'), r: true, render: r =>
+          bandWord(bx('scarcity')(r)) + (bx('thin')(r) ? ' <span class="tag noise">thin</span>' : '') },
+      { t: 'Score', v: bx('value'), r: true,
+        render: r => `<span class="score">${bx('value')(r).toFixed(0)}</span>` },
     ],
     filter: () => {
       const q = $('#be-q').value.trim().toLowerCase();

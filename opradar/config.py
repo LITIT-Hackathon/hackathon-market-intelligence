@@ -57,6 +57,16 @@ CONFIG: dict = {
         # partial credit when the best candidate sits exactly one seniority
         # level below the demand atom
         "adjacent_credit": 0.7,
+        # An atom we cannot characterise is NOT a staffable atom. 49.6% of
+        # eligible postings name no technology and 76.6% carry no seniority,
+        # so treating either unknown as a pass made 39.5% of demand match on
+        # role_family alone and pinned serviceability at ~1.0 for everyone.
+        # Missing evidence now earns partial credit: we genuinely do not know
+        # whether we could staff it, and the score should say so.
+        "unknown_tech_credit": 0.5,
+        "unknown_seniority_credit": 0.85,
+        # an atom only counts as "we could staff this" above this credit
+        "strong_coverage": 0.7,
         # w_d: fresh-first -- the newest demand matters most, so the bench
         # is graded hardest on whether it can serve what is being asked NOW
         "atom_weight_gt90": 0.3, "atom_weight_gt45": 0.6, "atom_weight_fresh": 1.0,

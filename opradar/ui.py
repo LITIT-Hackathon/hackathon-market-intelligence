@@ -437,13 +437,14 @@ def _talent_replacements(payload: dict) -> dict:
 def _strip_talent_screens(html: str) -> str:
     """Remove the supply-side tabs and sections when there is no candidate data."""
     for tab in ("talent", "candidates"):
-        html = html.replace(
-            f'    <button data-s="{tab}" aria-selected="false">'
-            f'{"Talent" if tab == "talent" else "Candidates"}</button>\n', "")
-        start = html.find(f'<section class="screen" id="{tab}">')
+        start = html.find(f'<section class="screen" id="{tab}" data-g="people">')
         if start != -1:
             end = html.find("</section>", start) + len("</section>")
             html = html[:start] + html[end:]
+    # drop the nav tab only once nothing is left grouped under it
+    if 'data-g="people"' not in html:
+        html = html.replace(
+            '    <button data-s="people" aria-selected="false">Our people</button>\n', "")
     # and the quality panel that describes it
     start = html.find('    <div class="panel span2">\n      <p class="label">Candidate dataset</p>')
     if start != -1:
@@ -458,10 +459,20 @@ def _radar_replacements(payload: dict) -> dict:
     if not r or not b:
         return {}
     v, rm, bm = r["validation"], r["meta"], b["meta"]
+    # Plain-language headline numbers: totals a salesperson can act on, summed
+    # across the ranked list rather than reported as pipeline internals.
+    idx = {c: i for i, c in enumerate(r["cols"])}
+    open_roles = sum(row[idx["it_n"]] for row in r["rows"])
+    # fresh-first drops postings past hard_cap_days, so open_90 is now
+    # structurally zero. The 45-day threshold is the longest the data
+    # still supports, and it carries the same meaning: not filled yet.
+    stuck = sum(row[idx["open45"]] for row in r["rows"])
     return {
         "__R_HASH__": rm["config_hash"],
         "__R_RANKED__": f"{rm['ranked']:,}",
         "__R_EXCL__": f"{rm['excluded']}",
+        "__R_OPENROLES__": f"{open_roles:,}",
+        "__R_STUCK__": f"{stuck:,}",
         "__R_V1__": f"{v['v1_rho']:.2f}",
         "__R_V2__": "0" if v["v2"] == "clean" else v["v2"],
         "__R_V3__": f"{v['v3_min']}/{v['v3_k']}",
@@ -474,22 +485,23 @@ def _radar_replacements(payload: dict) -> dict:
 
 
 def _strip_radar_screens(html: str) -> str:
-    for tab, label in (("radar", "Radar"), ("bench", "Bench")):
-        html = html.replace(
-            f'    <button data-s="{tab}" aria-selected="true">{label}</button>\n', "")
-        html = html.replace(
-            f'    <button data-s="{tab}" aria-selected="false">{label}</button>\n', "")
-        start = html.find(f'<section class="screen on" id="{tab}">')
+    for tab in ("radar", "bench"):
+        start = html.find(f'<section class="screen on" id="{tab}"')
         if start == -1:
-            start = html.find(f'<section class="screen" id="{tab}">')
+            start = html.find(f'<section class="screen" id="{tab}"')
         if start != -1:
             end = html.find("</section>", start) + len("</section>")
             html = html[:start] + html[end:]
+    html = html.replace(
+        '    <button data-s="radar" aria-selected="true">Who to call</button>\n', "")
+    if 'data-g="people"' not in html:
+        html = html.replace(
+            '    <button data-s="people" aria-selected="false">Our people</button>\n', "")
     # overview becomes the default again
-    html = html.replace('<button data-s="overview" aria-selected="false">Overview</button>',
-                        '<button data-s="overview" aria-selected="true">Overview</button>')
-    html = html.replace('<section class="screen" id="overview">',
-                        '<section class="screen on" id="overview">')
+    html = html.replace('<button data-s="companies" aria-selected="false">Companies</button>',
+                        '<button data-s="companies" aria-selected="true">Companies</button>')
+    html = html.replace('<section class="screen" id="overview" data-g="companies">',
+                        '<section class="screen on" id="overview" data-g="companies">')
     return html
 
 
@@ -587,14 +599,10 @@ TEMPLATE = r"""<!doctype html>
     </div>
   </div>
   <nav>
-    <button data-s="radar" aria-selected="true">Radar</button>
-    <button data-s="overview" aria-selected="false">Overview</button>
+    <button data-s="radar" aria-selected="true">Opportunities</button>
     <button data-s="companies" aria-selected="false">Companies</button>
-    <button data-s="postings" aria-selected="false">Postings</button>
-    <button data-s="talent" aria-selected="false">Talent</button>
-    <button data-s="bench" aria-selected="false">Bench</button>
-    <button data-s="candidates" aria-selected="false">Candidates</button>
-    <button data-s="quality" aria-selected="false">Data quality</button>
+    <button data-s="people" aria-selected="false">People</button>
+    <button data-s="method" aria-selected="false">How it works</button>
   </nav>
 </header>
 
@@ -602,48 +610,48 @@ TEMPLATE = r"""<!doctype html>
 
 
 <!-- ================= RADAR ================= -->
-<section class="screen on" id="radar">
-  <p class="label">Radar &middot; ranked opportunities</p>
+<section class="screen on" id="radar" data-g="radar">
+  <p class="label">Opportunities &middot; demand matched to people</p>
   <h2>Who to call,<br>and why</h2>
-  <p class="lede">Every company below is scored <b>Opportunity = Need &times; Serviceability</b>,
-    with Confidence reported beside the score, never folded into it. Need is four percentile
-    signals over the eligible pool; Serviceability is whether our bench could actually staff
-    the work. Deterministic arithmetic &mdash; config <code>__R_HASH__</code> &mdash; and every
-    row carries clickable evidence.</p>
+  <p class="lede">Both halves of the product in one list. We find German companies that
+    cannot fill their IT roles, then check each one against the people we could actually
+    put on the work &mdash; so the top of this list is not just who is struggling, but who
+    is struggling <em>with work we can take</em>. Every company scores out of 100, judged
+    against the others here. Click any row for the real job ads behind it.</p>
 
   <div class="kpis">
-    <div class="kpi"><p class="label">Ranked</p><p class="v num">__R_RANKED__</p><p class="n">companies in the eligible pool</p></div>
-    <div class="kpi"><p class="label">Excluded</p><p class="v num">__R_EXCL__</p><p class="n">by the 90-day recency guard</p></div>
-    <div class="kpi"><p class="label">V1 divergence</p><p class="v num">__R_V1__</p><p class="n">Spearman vs naive volume ranking &mdash; low is good</p></div>
-    <div class="kpi"><p class="label">V2 adversarial</p><p class="v num">__R_V2__</p><p class="n">agencies / NTT entities in the list</p></div>
-    <div class="kpi hl"><p class="label">V3 stability</p><p class="v num">__R_V3__</p><p class="n">of top-20 kept under &plusmn;20% weight changes</p></div>
-  </div>
-
-  <div class="panel" style="margin-bottom:18px">
-    <p class="label">Tunable</p><h3>Need weights</h3>
-    <p class="hint">The weights are a parameter, not a hardcode. Drag &mdash; the ranking
-      recomputes live from the embedded percentile signals. Defaults are the measured
-      values from ALGORITHM.md.</p>
-    <div class="sliders">
-      <label>N1 unmet demand <input type="range" id="w-n1" min="0" max="50" value="35"><b id="wv-n1">35</b></label>
-      <label>N2 seniority pressure <input type="range" id="w-n2" min="0" max="50" value="25"><b id="wv-n2">25</b></label>
-      <label>N3 coherence <input type="range" id="w-n3" min="0" max="50" value="20"><b id="wv-n3">20</b></label>
-      <label>N4 momentum <input type="range" id="w-n4" min="0" max="50" value="20"><b id="wv-n4">20</b></label>
-      <button id="w-reset" class="resetbtn">Reset</button>
-    </div>
+    <div class="kpi hl"><p class="label">Companies worth calling</p><p class="v num" id="k-ranked">__R_RANKED__</p><p class="n">ranked below, best first</p></div>
+    <div class="kpi"><p class="label">IT roles they cannot fill</p><p class="v num" id="k-roles">__R_OPENROLES__</p><p class="n">open right now across all of them</p></div>
+    <div class="kpi"><p class="label">Open over 6 weeks</p><p class="v num" id="k-stuck">__R_STUCK__</p><p class="n">still not filled after six weeks</p></div>
   </div>
 
   <div class="controls">
-    <input type="search" id="ra-q" placeholder="Search company...">
-    <select id="ra-class"><option value="">All classes</option>
-      <option>end_client</option><option>public_sector</option></select>
-    <select id="ra-band"><option value="">Any confidence</option>
-      <option>high</option><option>medium</option><option>low</option></select>
-    <label class="chk"><input type="checkbox" id="ra-noreview"> Hide review-flagged</label>
+    <input type="search" id="ra-q" placeholder="Search for a company...">
+    <select id="ra-class"><option value="">Every type of company</option>
+      <option value="end_client">Businesses</option>
+      <option value="public_sector">Public sector</option></select>
+    <select id="ra-band"><option value="">Any amount of evidence</option>
+      <option value="high">Strong evidence</option>
+      <option value="medium">Some evidence</option>
+      <option value="low">Thin evidence</option></select>
+    <label class="chk"><input type="checkbox" id="ra-noreview" checked> Only confirmed customers</label>
     <span class="count" id="ra-count"></span>
   </div>
   <div class="tw"><table><thead id="ra-head"></thead><tbody id="ra-body"></tbody></table></div>
   <div class="pager" id="ra-pager"></div>
+
+  <details class="adv">
+    <summary>Advanced &mdash; change what counts as a good lead</summary>
+    <p class="hint">Drag a slider and the ranking re-sorts instantly. Nothing is hardcoded:
+      these four things are what decide the order.</p>
+    <div class="sliders">
+      <label>Roles sitting unfilled <input type="range" id="w-n1" min="0" max="50" value="35"><b id="wv-n1">35</b></label>
+      <label>Senior roles they cannot fill <input type="range" id="w-n2" min="0" max="50" value="25"><b id="wv-n2">25</b></label>
+      <label>Hiring focused on one technology <input type="range" id="w-n3" min="0" max="50" value="20"><b id="wv-n3">20</b></label>
+      <label>Still hiring right now <input type="range" id="w-n4" min="0" max="50" value="20"><b id="wv-n4">20</b></label>
+      <button id="w-reset" class="resetbtn">Reset</button>
+    </div>
+  </details>
 
   <div class="note" style="margin-top:18px"><b>How to read a row.</b> Click a company to open
     its evidence &mdash; the oldest unfilled and freshest postings, each linking to the live ad
@@ -652,79 +660,15 @@ TEMPLATE = r"""<!doctype html>
     Serviceability &lt; 1.0 means part of their demand sits in categories our bench does not
     carry &mdash; the uncovered families are listed in the evidence panel.</div>
 </section>
-<!-- ================= OVERVIEW ================= -->
-<section class="screen" id="overview">
-  <p class="label">Overview</p>
-  <h2>What the market<br>looks like</h2>
-  <p class="lede">Everything below comes from the parsed snapshot. No scores, no ranking yet —
-    this is the raw shape of demand the algorithm layer will be built on.</p>
-
-  <div class="kpis">
-    <div class="kpi"><p class="label">Postings</p><p class="v num">__KPI_POSTINGS__</p><p class="n">after parsing</p></div>
-    <div class="kpi"><p class="label">Companies</p><p class="v num">__KPI_COMPANIES__</p><p class="n">from __KPI_RAWEMP__ raw strings</p></div>
-    <div class="kpi"><p class="label">IT postings</p><p class="v num">__KPI_IT__</p><p class="n">KldB group 43</p></div>
-    <div class="kpi"><p class="label">IT employers</p><p class="v num">__KPI_ITCO__</p><p class="n">with 3+ IT roles</p></div>
-    <div class="kpi hl"><p class="label">Competitor share</p><p class="v num">__KPI_COMP__</p><p class="n">of IT postings, from agencies &amp; IT services</p></div>
-    <div class="kpi"><p class="label">Median age</p><p class="v num">__KPI_AGE__</p><p class="n">days a posting has been open</p></div>
-    <div class="kpi"><p class="label">Open &gt; 90 days</p><p class="v num">__KPI_STALE__</p><p class="n">the scarcity signal</p></div>
-  </div>
-
-  <div class="grid">
-    <div class="panel">
-      <p class="label">Demand</p><h3>Occupational groups</h3>
-      <p class="hint">Top 10 of 37. IT highlighted.</p>
-      <div id="c-groups"></div>
-    </div>
-    <div class="panel">
-      <p class="label">Supply side</p><h3>Who is posting</h3>
-      <p class="hint">Postings by company class. Highlighted classes compete with us for the same placements.</p>
-      <div id="c-class"></div>
-    </div>
-    <div class="panel">
-      <p class="label">Stack</p><h3>Technologies in IT postings</h3>
-      <p class="hint">From job titles only — roughly a third of IT postings name a technology. Descriptions would raise this.</p>
-      <div id="c-tech"></div>
-    </div>
-    <div class="panel">
-      <p class="label">Sector</p><h3>Market domains</h3>
-      <p class="hint">Across all postings — the sector a role sits in, detected separately from the technology stack. Domain fit is a first-class matching dimension.</p>
-      <div id="c-domain"></div>
-    </div>
-    <div class="panel">
-      <p class="label">Scarcity</p><h3>How long postings stay open</h3>
-      <p class="hint">Highlighted buckets are roles the market is failing to fill.</p>
-      <div id="c-age"></div>
-    </div>
-    <div class="panel">
-      <p class="label">Qualification</p><h3>Requirement level</h3>
-      <p class="hint">KldB 5th digit. Present on 99.8% of postings — the reliable way to stratify by level.</p>
-      <div id="c-level"></div>
-    </div>
-    <div class="panel wide">
-      <p class="label">Geography</p><h3>Where the postings are</h3>
-      <p class="hint" id="region-hint"></p>
-      <label class="chk" style="margin-bottom:14px"><input type="checkbox" id="region-norm"> Per million inhabitants</label>
-      <div id="c-region"></div>
-    </div>
-    <div class="panel wide">
-      <p class="label">Careful</p><h3>Postings by month posted</h3>
-      <p class="hint">Last 18 months.</p>
-      <div id="c-month"></div>
-      <div class="note"><b>This chart is a trap.</b> It looks like the market tripled, and it did not.
-        The snapshot only contains postings that were still <em>open</em> on the crawl date — older ones
-        are missing because they were <em>filled</em>. This is a survival curve, not a demand curve.
-        Real trend data has to come from repeated crawls or an explicit "posted in the last N days" filter.
-        It is shown here so nobody rebuilds it by accident.</div>
-    </div>
-  </div>
-</section>
-
 <!-- ================= COMPANIES ================= -->
-<section class="screen" id="companies">
-  <p class="label">Companies</p>
-  <h2>Every resolved<br>company</h2>
-  <p class="lede">One row per entity after name resolution. Class comes from keyword rules over the
-    company name — <em>review</em> marks the ones the rules could not decide.</p>
+<section class="screen" id="companies" data-g="companies">
+  <p class="label">Companies &middot; the demand side</p>
+  <h2>Every company<br>we found</h2>
+  <p class="lede">All 18,416 employers, after merging the different spellings of the same company
+    into one. Each is labelled by what it is &mdash; a business that might buy from us, a
+    recruitment agency, an IT firm we compete with &mdash; because that label decides whether it
+    can appear as a sales lead at all. <em>Review</em> marks the ones we could not tell apart
+    automatically.</p>
 
   <div class="controls">
     <input type="search" id="co-q" placeholder="Search company…">
@@ -742,211 +686,113 @@ TEMPLATE = r"""<!doctype html>
   <div class="tw"><table><thead id="co-head"></thead><tbody id="co-body"></tbody></table></div>
   <div class="pager" id="co-pager"></div>
 </section>
-
-<!-- ================= POSTINGS ================= -->
-<section class="screen" id="postings">
-  <p class="label">Postings</p>
-  <h2>The evidence<br>layer</h2>
-  <p class="lede">Showing __POSTINGS_SHOWN__ __SCOPE__. Every title links to the live posting on
-    arbeitsagentur.de — this is what any score has to be traceable back to.</p>
-  <div class="note" style="margin:-16px 0 26px"><b>Sorted by how long each posting has been open.</b>
-    The extreme tail is real but not useful: postings older than roughly two years are records the
-    source never delisted, not live demand. The scarcity signal worth acting on sits in the
-    90–400 day band — use the age filter.</div>
-
-  <div class="controls">
-    <input type="search" id="po-q" placeholder="Search title or company…">
-    <select id="po-sen">__OPT_SEN__</select>
-    <select id="po-tech">__OPT_TECH__</select>
-    <select id="po-reg">__OPT_REG__</select>
-    <select id="po-age">
-      <option value="0">Any age</option>
-      <option value="30">Open 30+ days</option>
-      <option value="90">Open 90+ days</option>
-      <option value="180">Open 180+ days</option>
-    </select>
-    <label class="chk"><input type="checkbox" id="po-hidecomp"> Hide competitor postings</label>
-    <span class="count" id="po-count"></span>
-  </div>
-  <div class="tw"><table><thead id="po-head"></thead><tbody id="po-body"></tbody></table></div>
-  <div class="pager" id="po-pager"></div>
-</section>
-
-
-<!-- ================= TALENT ================= -->
-<section class="screen" id="talent">
-  <p class="label">Talent &middot; supply side</p>
-  <h2>Who is<br>available</h2>
-  <p class="lede">The other half of the market: 10,000 candidate profiles and 2,500 openings from a
-    synthetic benchmark dataset. Same treatment as the demand side &mdash; normalised, aggregated,
-    and honest about what it can and cannot tell you.</p>
-
-  <div class="note" style="margin:-16px 0 26px"><b>Two things to know before reading any of this.</b>
-    The dataset is <em>synthetic and LLM-generated</em>, so the near-uniform distributions below
-    measure the generator, not a labour market. And it <em>does not join to the German posting
-    data</em>: only __BRIDGE_PCT__% of its skill vocabulary has an equivalent in our German
-    extraction, covering __BRIDGE_COV__% of German IT postings. Use it to build and demo the
-    matcher, not to claim anything about Germany.</div>
+<!-- ================= OVERVIEW ================= -->
+<section class="screen" id="overview" data-g="companies">
+  <p class="label">Overview</p>
+  <h2>What the market<br>looks like</h2>
+  <p class="lede">The German job market as it stood on the snapshot date &mdash; who is hiring,
+    for what, where, and how long the roles stay open. Nothing here is scored or ranked; it is
+    the raw picture the sales list is built from.</p>
 
   <div class="kpis">
-    <div class="kpi"><p class="label">Candidates</p><p class="v num">__T_CAND__</p><p class="n">profiles parsed</p></div>
-    <div class="kpi"><p class="label">In tech roles</p><p class="v num">__T_TECH__</p><p class="n">engineering, data, technical</p></div>
-    <div class="kpi"><p class="label">Openings</p><p class="v num">__T_OPEN__</p><p class="n">synthetic demand side</p></div>
-    <div class="kpi"><p class="label">Skill vocabulary</p><p class="v num">__T_SKILLS__</p><p class="n">__T_MEANSK__ skills per candidate</p></div>
-    <div class="kpi hl"><p class="label">Qualified pool</p><p class="v num">__T_POOL__</p><p class="n">candidates meeting an average opening's must-haves</p></div>
+    <div class="kpi hl"><p class="label">Companies hiring IT</p><p class="v num">__KPI_ITCO__</p><p class="n">with three or more IT roles open &mdash; the market we can sell into</p></div>
+    <div class="kpi"><p class="label">Roles open past 3 months</p><p class="v num">__KPI_STALE__</p><p class="n">German IT hiring is slow, and that slowness is the opening</p></div>
+    <div class="kpi"><p class="label">Hiring done by agencies</p><p class="v num">__KPI_COMP__</p><p class="n">of IT roles are posted by recruiters and IT firms, not the employer</p></div>
   </div>
+
+  <details class="more">
+    <summary>More numbers about the data</summary>
+    <div class="kpis">
+      <div class="kpi"><p class="label">Job ads</p><p class="v num">__KPI_POSTINGS__</p><p class="n">after cleaning</p></div>
+      <div class="kpi"><p class="label">Companies</p><p class="v num">__KPI_COMPANIES__</p><p class="n">from __KPI_RAWEMP__ raw employer names</p></div>
+      <div class="kpi"><p class="label">IT job ads</p><p class="v num">__KPI_IT__</p><p class="n">official German occupation code 43</p></div>
+      <div class="kpi"><p class="label">Typical time open</p><p class="v num">__KPI_AGE__</p><p class="n">middle of the range</p></div>
+    </div>
+  </details>
 
   <div class="grid">
-    <div class="panel wide">
-      <p class="label">The core question</p><h3>Skill supply vs demand</h3>
-      <p class="hint">Share of candidates holding each skill (dark) against share of openings asking
-        for it (yellow). Where yellow outruns dark, the market wants more than the bench carries.</p>
-      <div id="t-supplydemand"></div>
+    <div class="panel" style="order:4">
+      <p class="label">Demand</p><h3>Occupational groups</h3>
+      <p class="hint">Top 10 of 37. IT highlighted.</p>
+      <div id="c-groups"></div>
     </div>
-    <div class="panel">
-      <p class="label">Scarcity</p><h3>Highest tension</h3>
-      <p class="hint">Demand share divided by supply share, normalised so the market average is 1.0.
-        The spread is narrow because the generator is close to uniform &mdash; on real data expect
-        a far wider range.</p>
-      <div id="t-tensiontop"></div>
+    <div class="panel" style="order:2">
+      <p class="label">Supply side</p><h3>Who is posting</h3>
+      <p class="hint">Postings by company class. Highlighted classes compete with us for the same placements.</p>
+      <div id="c-class"></div>
     </div>
-    <div class="panel">
-      <p class="label">Oversupply</p><h3>Lowest tension</h3>
-      <p class="hint">More bench than market. On a real bench these are the hardest people to place.</p>
-      <div id="t-tensionbot"></div>
+    <div class="panel" style="order:3">
+      <p class="label">Stack</p><h3>Technologies in IT postings</h3>
+      <p class="hint">From job titles only — roughly a third of IT postings name a technology. Descriptions would raise this.</p>
+      <div id="c-tech"></div>
     </div>
-    <div class="panel">
-      <p class="label">Shape</p><h3>Role families</h3>
-      <p class="hint">Candidates by role family. Engineering and data are the tech-facing ones.</p>
-      <div id="t-rolefam"></div>
+    <div class="panel" style="order:5">
+      <p class="label">Sector</p><h3>Market domains</h3>
+      <p class="hint">Across all postings — the sector a role sits in, detected separately from the technology stack. Domain fit is a first-class matching dimension.</p>
+      <div id="c-domain"></div>
     </div>
-    <div class="panel">
-      <p class="label">Demand</p><h3>Most requested roles</h3>
-      <p class="hint">Openings by title.</p>
-      <div id="t-roledemand"></div>
+    <div class="panel" style="order:1">
+      <p class="label">Scarcity</p><h3>How long postings stay open</h3>
+      <p class="hint">Highlighted buckets are roles the market is failing to fill.</p>
+      <div id="c-age"></div>
     </div>
-    <div class="panel">
-      <p class="label">Level</p><h3>Seniority and experience</h3>
-      <p class="hint">Note the near-perfect thirds. That is the generator, not a talent pool.</p>
-      <div id="t-seniority"></div>
-      <div style="height:16px"></div>
-      <div id="t-experience"></div>
+    <div class="panel" style="order:6">
+      <p class="label">Qualification</p><h3>Requirement level</h3>
+      <p class="hint">KldB 5th digit. Present on 99.8% of postings — the reliable way to stratify by level.</p>
+      <div id="c-level"></div>
     </div>
-    <div class="panel">
-      <p class="label">Background</p><h3>Industry and education</h3>
-      <p class="hint">Ten industries at roughly 10% each, five education levels at roughly 20% each.</p>
-      <div id="t-industry"></div>
-      <div style="height:16px"></div>
-      <div id="t-education"></div>
+    <div class="panel wide" style="order:7">
+      <p class="label">Geography</p><h3>Where the postings are</h3>
+      <p class="hint" id="region-hint"></p>
+      <label class="chk" style="margin-bottom:14px"><input type="checkbox" id="region-norm"> Per million inhabitants</label>
+      <div id="c-region"></div>
     </div>
-    <div class="panel wide">
-      <p class="label">Skill market</p><h3>Every skill, supply against demand</h3>
-      <p class="hint">Sort any column. Tension above 1.0 means demand outruns supply.</p>
-      <div class="controls">
-        <input type="search" id="sk-q" placeholder="Search skill...">
-        <select id="sk-fam">__OPT_SKFAM__</select>
-        <span class="count" id="sk-count"></span>
-      </div>
-      <div class="tw" style="max-height:52vh"><table><thead id="sk-head"></thead><tbody id="sk-body"></tbody></table></div>
-      <div class="pager" id="sk-pager"></div>
-    </div>
-  </div>
-</section>
-
-<!-- ================= CANDIDATES ================= -->
-<section class="screen" id="candidates">
-  <p class="label">Candidates</p>
-  <h2>The bench</h2>
-  <p class="lede">All __T_CAND__ parsed profiles. <em>Qualified for</em> counts how many of the
-    __T_OPEN__ openings each candidate meets the must-have threshold for &mdash; recomputed here,
-    not taken from the dataset's own labels.</p>
-
-  <div class="controls">
-    <input type="search" id="ca-q" placeholder="Search role, industry or skill...">
-    <select id="ca-role">__OPT_CAROLE__</select>
-    <select id="ca-sen">__OPT_CASEN__</select>
-    <select id="ca-ind">__OPT_CAIND__</select>
-    <label class="chk"><input type="checkbox" id="ca-tech"> Tech roles only</label>
-    <span class="count" id="ca-count"></span>
-  </div>
-  <div class="tw"><table><thead id="ca-head"></thead><tbody id="ca-body"></tbody></table></div>
-  <div class="pager" id="ca-pager"></div>
-</section>
-
-
-<!-- ================= BENCH ================= -->
-<section class="screen" id="bench">
-  <p class="label">Bench &middot; people scoring</p>
-  <h2>Who we can<br>deploy</h2>
-  <p class="lede">A <b>synthetic</b> delivery bench of __B_SIZE__ consultants, generated in the
-    German tech vocabulary (option B3) so matching against real demand is a join, not a guess.
-    Each consultant is scored <b>Value = MarketPull &times; Scarcity &times; Deployability</b>
-    &mdash; and MarketPull comes from the <em>real German postings</em>, never from synthetic
-    openings.</p>
-
-  <div class="note" style="margin:-16px 0 26px"><b>Every person on this screen is synthetic.</b>
-    The bench profile is a deliberate model of a Lithuanian nearshore consultancy &mdash; strong in
-    modern software delivery, thin in SAP/embedded &mdash; so the gap against German demand is
-    visible instead of flattered away. Swap in the real bench and every number recomputes.</div>
-
-  <div class="kpis">
-    <div class="kpi"><p class="label">Bench</p><p class="v num">__B_SIZE__</p><p class="n">synthetic consultants</p></div>
-    <div class="kpi"><p class="label">Cells</p><p class="v num">__B_CELLS__</p><p class="n">role family &times; seniority</p></div>
-    <div class="kpi"><p class="label">Thin cells</p><p class="v num">__B_THIN__</p><p class="n">below 5 people &mdash; flagged, not ranked</p></div>
-    <div class="kpi"><p class="label">German speakers</p><p class="v num">__B_DE__</p><p class="n">the hard nearshore constraint</p></div>
-    <div class="kpi"><p class="label">People V1</p><p class="v num">__B_RHO__</p><p class="n">value vs skill-count &rho; &mdash; low means we don't just reward long CVs</p></div>
-  </div>
-
-  <div class="grid">
-    <div class="panel wide">
-      <p class="label">The gap</p><h3>German demand vs bench capability</h3>
-      <p class="hint">Eligible German postings naming each tech category (dark) against bench
-        consultants carrying it (yellow). Where dark towers over yellow &mdash; SAP/erp, embedded,
-        security &mdash; is exactly what the bench cannot serve. This chart is the honest version
-        of Serviceability.</p>
-      <div id="b-gap"></div>
-    </div>
-    <div class="panel">
-      <p class="label">Demand</p><h3>Unfilled German demand by role family</h3>
-      <p class="hint">Postings open &gt;45 days in the eligible pool &mdash; the MarketPull input.</p>
-      <div id="b-pull"></div>
-    </div>
-    <div class="panel">
-      <p class="label">Supply</p><h3>Bench by role family</h3>
-      <p class="hint">Where our capacity actually sits.</p>
-      <div id="b-supply"></div>
-    </div>
-    <div class="panel wide">
-      <p class="label">Cells</p><h3>Supply index &mdash; the Pipeline C hand-off</h3>
-      <p class="hint">One row per role family &times; seniority. Thin cells (&lt;5 people) are
-        flagged: scarcity = 1/depth explodes there, so they are never ranked &mdash; dead code on
-        a 120-person bench in some cells, load-bearing the moment the real bench arrives.</p>
-      <div class="tw" style="max-height:44vh"><table><thead id="ce-head"></thead><tbody id="ce-body"></tbody></table></div>
-      <div class="pager" id="ce-pager"></div><span class="count" id="ce-count" style="display:none"></span>
-    </div>
-    <div class="panel wide">
-      <p class="label">People ranking</p><h3>Bench value</h3>
-      <p class="hint">Value = MarketPull &times; Scarcity &times; Deployability, all percentiled.
-        Multiplicative: a candidate nobody wants, or one we have forty of, is not valuable
-        regardless of the other factors.</p>
-      <div class="controls">
-        <input type="search" id="be-q" placeholder="Search family or tag...">
-        <select id="be-fam"><option value="">All families</option>
-          <option>dev</option><option>data</option><option>ops</option><option>qa</option>
-          <option>analyst</option><option>architect</option><option>security</option><option>support</option></select>
-        <label class="chk"><input type="checkbox" id="be-avail"> Available now / 30d only</label>
-        <span class="count" id="be-count"></span>
-      </div>
-      <div class="tw" style="max-height:56vh"><table><thead id="be-head"></thead><tbody id="be-body"></tbody></table></div>
-      <div class="pager" id="be-pager"></div>
+    <div class="panel wide" style="order:8">
+      <p class="label">Careful</p><h3>Postings by month posted</h3>
+      <p class="hint">Last 18 months.</p>
+      <div id="c-month"></div>
+      <div class="note"><b>This chart is a trap.</b> It looks like the market tripled, and it did not.
+        The snapshot only contains postings that were still <em>open</em> on the crawl date — older ones
+        are missing because they were <em>filled</em>. This is a survival curve, not a demand curve.
+        Real trend data has to come from repeated crawls or an explicit "posted in the last N days" filter.
+        It is shown here so nobody rebuilds it by accident.</div>
     </div>
   </div>
 </section>
 
 <!-- ================= QUALITY ================= -->
-<section class="screen" id="quality">
-  <p class="label">Data quality</p>
-  <h2>What to<br>distrust</h2>
+<section class="screen" id="quality" data-g="method">
+  <p class="label">How it works</p>
+  <h2>How the list<br>is built</h2>
+  <p class="lede">Four things about each company decide its position: how long its IT roles
+    have stayed unfilled, how many are senior, whether the hiring is focused on one
+    technology, and whether it is still posting. Companies are compared only against each
+    other, so a score means "compared with the rest of this list". Nothing is guessed &mdash;
+    every number traces to real job ads.</p>
+
+  <div class="kpis">
+    <div class="kpi"><p class="label">Not just counting job ads</p><p class="v num">__R_V1__</p>
+      <p class="n">0 = completely different from ranking by number of ads, 1 = identical.
+      Lower is better &mdash; anyone can count ads.</p></div>
+    <div class="kpi"><p class="label">Recruiters in the list</p><p class="v num">__R_V2__</p>
+      <p class="n">Staffing agencies and our own group, filtered out. Should be zero.</p></div>
+    <div class="kpi"><p class="label">Ranking stability</p><p class="v num">__R_V3__</p>
+      <p class="n">Of the top 20, how many stay there when the four weightings are
+      nudged up or down by a fifth.</p></div>
+  </div>
+
+  <details class="more">
+    <summary>More checks</summary>
+    <div class="kpis">
+      <div class="kpi"><p class="label">Companies set aside</p><p class="v num">__R_EXCL__</p>
+        <p class="n">No job ad posted in 90 days &mdash; probably abandoned listings.</p></div>
+    </div>
+  </details>
+
+  <p class="hint" style="margin-bottom:22px">Same data in, same list out &mdash; settings
+    fingerprint <code>__R_HASH__</code>.</p>
+
+  <h3 style="margin-bottom:6px">What to distrust</h3>
   <p class="lede">The parser reports its own weak spots. Read this before quoting any number
     from the other screens.</p>
 
@@ -1018,6 +864,216 @@ TEMPLATE = r"""<!doctype html>
     </div>
   </div>
 </section>
+
+<!-- ================= POSTINGS ================= -->
+<section class="screen" id="postings" data-g="method">
+  <p class="label">Postings</p>
+  <h2>The evidence<br>layer</h2>
+  <p class="lede">Showing __POSTINGS_SHOWN__ __SCOPE__. Every title links to the live posting on
+    arbeitsagentur.de — this is what any score has to be traceable back to.</p>
+  <div class="note" style="margin:-16px 0 26px"><b>Sorted by how long each posting has been open.</b>
+    The extreme tail is real but not useful: postings older than roughly two years are records the
+    source never delisted, not live demand. The scarcity signal worth acting on sits in the
+    90–400 day band — use the age filter.</div>
+
+  <div class="controls">
+    <input type="search" id="po-q" placeholder="Search title or company…">
+    <select id="po-sen">__OPT_SEN__</select>
+    <select id="po-tech">__OPT_TECH__</select>
+    <select id="po-reg">__OPT_REG__</select>
+    <select id="po-age">
+      <option value="0">Any age</option>
+      <option value="30">Open 30+ days</option>
+      <option value="90">Open 90+ days</option>
+      <option value="180">Open 180+ days</option>
+    </select>
+    <label class="chk"><input type="checkbox" id="po-hidecomp"> Hide competitor postings</label>
+    <span class="count" id="po-count"></span>
+  </div>
+  <div class="tw"><table><thead id="po-head"></thead><tbody id="po-body"></tbody></table></div>
+  <div class="pager" id="po-pager"></div>
+</section>
+
+
+<!-- ================= BENCH ================= -->
+<section class="screen" id="bench" data-g="people">
+  <p class="label">Bench &middot; people scoring</p>
+  <h2>Who we can<br>deploy</h2>
+  <p class="lede">A <b>synthetic</b> delivery bench of __B_SIZE__ consultants, generated in the
+    German tech vocabulary (option B3) so matching against real demand is a join, not a guess.
+    Each consultant is scored <b>Value = MarketPull &times; Scarcity &times; Deployability</b>
+    &mdash; and MarketPull comes from the <em>real German postings</em>, never from synthetic
+    openings.</p>
+
+  <div class="note" style="margin:-16px 0 26px"><b>Every person on this screen is synthetic.</b>
+    The bench profile is a deliberate model of a Lithuanian nearshore consultancy &mdash; strong in
+    modern software delivery, thin in SAP/embedded &mdash; so the gap against German demand is
+    visible instead of flattered away. Swap in the real bench and every number recomputes.</div>
+
+  <div class="kpis">
+    <div class="kpi hl"><p class="label">People on the bench</p><p class="v num">__B_SIZE__</p><p class="n">who we could put on a project</p></div>
+    <div class="kpi"><p class="label">Speak German</p><p class="v num">__B_DE__</p><p class="n">the hard limit on how much German work we can take</p></div>
+    <div class="kpi"><p class="label">Thin skill groups</p><p class="v num">__B_THIN__</p><p class="n">fewer than 5 people &mdash; we flag these rather than promise them</p></div>
+  </div>
+
+  <details class="more">
+    <summary>More numbers about the bench</summary>
+    <div class="kpis">
+      <div class="kpi"><p class="label">Skill groups</p><p class="v num">__B_CELLS__</p><p class="n">role type &times; seniority</p></div>
+      <div class="kpi"><p class="label">Not just the longest CV</p><p class="v num">__B_RHO__</p><p class="n">how little our ranking agrees with simply counting skills; near zero is good</p></div>
+    </div>
+  </details>
+
+  <div class="grid">
+    <div class="panel wide">
+      <p class="label">The gap</p><h3>German demand vs bench capability</h3>
+      <p class="hint">Eligible German postings naming each tech category (dark) against bench
+        consultants carrying it (yellow). Where dark towers over yellow &mdash; SAP/erp, embedded,
+        security &mdash; is exactly what the bench cannot serve. This chart is the honest version
+        of Serviceability.</p>
+      <div id="b-gap"></div>
+    </div>
+    <div class="panel">
+      <p class="label">Demand</p><h3>Unfilled German demand by role family</h3>
+      <p class="hint">Postings open &gt;45 days in the eligible pool &mdash; the MarketPull input.</p>
+      <div id="b-pull"></div>
+    </div>
+    <div class="panel">
+      <p class="label">Supply</p><h3>Bench by role family</h3>
+      <p class="hint">Where our capacity actually sits.</p>
+      <div id="b-supply"></div>
+    </div>
+    <div class="panel wide">
+      <p class="label">Cells</p><h3>Supply index &mdash; the Pipeline C hand-off</h3>
+      <p class="hint">One row per role family &times; seniority. Thin cells (&lt;5 people) are
+        flagged: scarcity = 1/depth explodes there, so they are never ranked &mdash; dead code on
+        a 120-person bench in some cells, load-bearing the moment the real bench arrives.</p>
+      <div class="tw" style="max-height:44vh"><table><thead id="ce-head"></thead><tbody id="ce-body"></tbody></table></div>
+      <div class="pager" id="ce-pager"></div><span class="count" id="ce-count" style="display:none"></span>
+    </div>
+    <div class="panel wide">
+      <p class="label">People ranking</p><h3>Bench value</h3>
+      <p class="hint">Value = MarketPull &times; Scarcity &times; Deployability, all percentiled.
+        Multiplicative: a candidate nobody wants, or one we have forty of, is not valuable
+        regardless of the other factors.</p>
+      <div class="controls">
+        <input type="search" id="be-q" placeholder="Search family or tag...">
+        <select id="be-fam"><option value="">All families</option>
+          <option>dev</option><option>data</option><option>ops</option><option>qa</option>
+          <option>analyst</option><option>architect</option><option>security</option><option>support</option></select>
+        <label class="chk"><input type="checkbox" id="be-avail"> Available now / 30d only</label>
+        <span class="count" id="be-count"></span>
+      </div>
+      <div class="tw" style="max-height:56vh"><table><thead id="be-head"></thead><tbody id="be-body"></tbody></table></div>
+      <div class="pager" id="be-pager"></div>
+    </div>
+  </div>
+</section>
+<!-- ================= TALENT ================= -->
+<section class="screen" id="talent" data-g="people">
+  <p class="label">Talent &middot; supply side</p>
+  <h2>Who is<br>available</h2>
+  <p class="lede">The other half of the market: 10,000 candidate profiles and 2,500 openings from a
+    synthetic benchmark dataset. Same treatment as the demand side &mdash; normalised, aggregated,
+    and honest about what it can and cannot tell you.</p>
+
+  <div class="note" style="margin:-16px 0 26px"><b>Two things to know before reading any of this.</b>
+    The dataset is <em>synthetic and LLM-generated</em>, so the near-uniform distributions below
+    measure the generator, not a labour market. And it <em>does not join to the German posting
+    data</em>: only __BRIDGE_PCT__% of its skill vocabulary has an equivalent in our German
+    extraction, covering __BRIDGE_COV__% of German IT postings. Use it to build and demo the
+    matcher, not to claim anything about Germany.</div>
+
+  <details class="more">
+    <summary>Numbers about this candidate dataset</summary>
+    <div class="kpis">
+      <div class="kpi"><p class="label">Candidate profiles</p><p class="v num">__T_CAND__</p><p class="n">all synthetic</p></div>
+      <div class="kpi"><p class="label">In tech roles</p><p class="v num">__T_TECH__</p><p class="n">engineering, data, technical</p></div>
+      <div class="kpi"><p class="label">Openings</p><p class="v num">__T_OPEN__</p><p class="n">also synthetic</p></div>
+      <div class="kpi"><p class="label">Different skills</p><p class="v num">__T_SKILLS__</p><p class="n">__T_MEANSK__ per candidate</p></div>
+      <div class="kpi"><p class="label">Match too loose</p><p class="v num">__T_POOL__</p><p class="n">candidates qualify for a typical opening &mdash; far too many to be realistic</p></div>
+    </div>
+  </details>
+
+  <div class="grid">
+    <div class="panel wide">
+      <p class="label">The core question</p><h3>Skill supply vs demand</h3>
+      <p class="hint">Share of candidates holding each skill (dark) against share of openings asking
+        for it (yellow). Where yellow outruns dark, the market wants more than the bench carries.</p>
+      <div id="t-supplydemand"></div>
+    </div>
+    <div class="panel">
+      <p class="label">Scarcity</p><h3>Highest tension</h3>
+      <p class="hint">Demand share divided by supply share, normalised so the market average is 1.0.
+        The spread is narrow because the generator is close to uniform &mdash; on real data expect
+        a far wider range.</p>
+      <div id="t-tensiontop"></div>
+    </div>
+    <div class="panel">
+      <p class="label">Oversupply</p><h3>Lowest tension</h3>
+      <p class="hint">More bench than market. On a real bench these are the hardest people to place.</p>
+      <div id="t-tensionbot"></div>
+    </div>
+    <div class="panel">
+      <p class="label">Shape</p><h3>Role families</h3>
+      <p class="hint">Candidates by role family. Engineering and data are the tech-facing ones.</p>
+      <div id="t-rolefam"></div>
+    </div>
+    <div class="panel">
+      <p class="label">Demand</p><h3>Most requested roles</h3>
+      <p class="hint">Openings by title.</p>
+      <div id="t-roledemand"></div>
+    </div>
+    <div class="panel">
+      <p class="label">Level</p><h3>Seniority and experience</h3>
+      <p class="hint">Note the near-perfect thirds. That is the generator, not a talent pool.</p>
+      <div id="t-seniority"></div>
+      <div style="height:16px"></div>
+      <div id="t-experience"></div>
+    </div>
+    <div class="panel">
+      <p class="label">Background</p><h3>Industry and education</h3>
+      <p class="hint">Ten industries at roughly 10% each, five education levels at roughly 20% each.</p>
+      <div id="t-industry"></div>
+      <div style="height:16px"></div>
+      <div id="t-education"></div>
+    </div>
+    <div class="panel wide">
+      <p class="label">Skill market</p><h3>Every skill, supply against demand</h3>
+      <p class="hint">Sort any column. Tension above 1.0 means demand outruns supply.</p>
+      <div class="controls">
+        <input type="search" id="sk-q" placeholder="Search skill...">
+        <select id="sk-fam">__OPT_SKFAM__</select>
+        <span class="count" id="sk-count"></span>
+      </div>
+      <div class="tw" style="max-height:52vh"><table><thead id="sk-head"></thead><tbody id="sk-body"></tbody></table></div>
+      <div class="pager" id="sk-pager"></div>
+    </div>
+  </div>
+</section>
+
+
+
+<!-- ================= CANDIDATES ================= -->
+<section class="screen" id="candidates" data-g="people">
+  <p class="label">Candidates</p>
+  <h2>The bench</h2>
+  <p class="lede">All __T_CAND__ parsed profiles. <em>Qualified for</em> counts how many of the
+    __T_OPEN__ openings each candidate meets the must-have threshold for &mdash; recomputed here,
+    not taken from the dataset's own labels.</p>
+
+  <div class="controls">
+    <input type="search" id="ca-q" placeholder="Search role, industry or skill...">
+    <select id="ca-role">__OPT_CAROLE__</select>
+    <select id="ca-sen">__OPT_CASEN__</select>
+    <select id="ca-ind">__OPT_CAIND__</select>
+    <label class="chk"><input type="checkbox" id="ca-tech"> Tech roles only</label>
+    <span class="count" id="ca-count"></span>
+  </div>
+  <div class="tw"><table><thead id="ca-head"></thead><tbody id="ca-body"></tbody></table></div>
+  <div class="pager" id="ca-pager"></div>
+</section>
+
 
 </main>
 

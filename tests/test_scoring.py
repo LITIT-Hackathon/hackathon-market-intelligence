@@ -97,7 +97,15 @@ def test_match_rules():
     adj = m["coverage_weight"] * m["adjacent_credit"] + m["depth_weight"] * (1 / m["depth_saturation"])
     assert abs(svc.loc["c2", "serviceability"] - round(adj, 4)) < 1e-6
     assert svc.loc["c3", "serviceability"] == 0.0
-    assert svc.loc["c4", "serviceability"] > 0.5          # passes tech + seniority
+    # c4 names no technology and carries no seniority, so it matches on
+    # role_family alone. That earns PARTIAL credit, not a pass: treating both
+    # unknowns as passes let 39.5% of real demand match on family alone and
+    # pinned serviceability near 1.0 for every company. It must land strictly
+    # between "uncovered" and "fully covered".
+    partial = m["unknown_tech_credit"] * m["unknown_seniority_credit"]
+    c4 = m["coverage_weight"] * partial + m["depth_weight"] * (2 / m["depth_saturation"])
+    assert abs(svc.loc["c4", "serviceability"] - round(c4, 4)) < 1e-6
+    assert 0 < svc.loc["c4", "serviceability"] < svc.loc["c1", "serviceability"]
     assert svc.loc["c5", "serviceability"] == 0.0         # phantom tech never matches
     assert svc.loc["c3", "atoms_uncovered"] == 1
 
