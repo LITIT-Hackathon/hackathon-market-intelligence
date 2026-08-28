@@ -1,0 +1,518 @@
+================================================================================
+OPRADAR - RESEARCH LOG
+Project: LITIT Hackathon challenge "Opportunity Radar"
+Repo:    github.com/LITIT-Hackathon/hackathon-market-intelligence
+Team:    Jokubas, Gustas
+Log started: 2026-08-28
+================================================================================
+
+HOW TO USE THIS FILE
+--------------------
+Append-only. Date every entry. Every factual claim carries a tag:
+
+  [VERIFIED]  - measured directly by us, or read from an authoritative source.
+                Method is stated so it can be re-run.
+  [INFERRED]  - our reasoning on top of verified facts. Could be wrong.
+  [UNKNOWN]   - open question. Do not build on it until resolved.
+
+Rule: no number goes in this file unless we produced it or can cite it.
+The README's description of the dataset is NOT a source - see section 3.
+
+
+================================================================================
+1. WHO WE ARE BUILDING FOR              [entry 2026-08-28]
+================================================================================
+
+1.1 LITIT [VERIFIED - litit.tech]
+    - Joint venture between NTT Data and Reiz Tech.
+    - Sells IT consultancy and IT solutions into the DACH region
+      (Germany, Austria, Switzerland).
+    - Positioning: "German Precision, Japanese Ethics, Lithuanian Talent."
+    - Stated plan to hire up to 100 specialists in year one.
+
+1.2 What "opportunity" therefore means [INFERRED, high confidence]
+    The brief never names the customer. But the organiser is a Lithuanian
+    IT consultancy selling into DACH, and the dataset is German job postings.
+    So the product should answer:
+
+      "Which DACH company should LITIT's sales team approach to sell
+       IT delivery / nearshore engineering capacity, and what evidence
+       proves they need it right now?"
+
+    This is a nearshore-delivery-capacity sale. That single framing decides
+    every scoring choice downstream. If we instead build a generic
+    "who is hiring a lot" tool, we are answering a question nobody asked.
+
+    -> CONFIRM WITH ORGANISERS IF POSSIBLE. If they say "keep it generic",
+       we keep the LITIT framing as the demo persona anyway and say so.
+
+1.3 Consequence: our own parent company is in the data [VERIFIED]
+    Employer strings containing NTT: 166 postings total
+      NTT DATA Business Solutions Global Managed Services GmbH   94
+      NTT DATA Deutschland SE                                    62
+      NTT Germany AG & Co. KG                                     4
+      NTT Global Data Centers EMEA GmbH                           4
+      NTT DATA                                                    2
+    (No Reiz Tech entity found in the data.)
+
+    This is a gift for the demo: a naive ranking puts LITIT's own parent
+    in its top 10 sales leads. Our system must classify companies as
+    self / competitor / intermediary / prospect. The README lists
+    "competitor vs. partner classification" as a stretch goal - for LITIT
+    it is not a stretch goal, it is a correctness requirement.
+
+
+================================================================================
+2. DATASET GROUND TRUTH                 [entry 2026-08-28]
+================================================================================
+
+Dataset: huggingface.co/datasets/mischeiwiller/german-job-postings
+Method:  HF datasets-server API (/info, /statistics, /first-rows) plus local
+         profiling of the parquet with duckdb 1.5.5.
+         File: data/postings.parquet, 4,471,699 bytes (14,083,950 uncompressed).
+         Re-run: .venv/Scripts/python.exe with duckdb over data/postings.parquet
+
+2.1 Scale [VERIFIED]
+    Rows:               70,584   (single split, "train")
+    Distinct employers: 19,942   (41 rows have NULL employer)
+    Language:           de       (100% of rows)
+    Licence:            CC-BY-4.0 (100% of rows)
+    Source:             bundesagentur (100% of rows)
+    Provenance string:  "normalized from bundesagentur jobsuche API v4 raw page"
+
+    => The entire dataset is ONE source: the German Federal Employment
+       Agency (Bundesagentur fuer Arbeit) job board.
+
+2.2 Full schema [VERIFIED]
+    id                  string
+    source              string
+    source_url          string      (arbeitsagentur.de job detail URL)
+    license             string
+    provenance          string
+    fetched_at          timestamp (UTC)
+    posted_date         date
+    lang                string
+    title               string      (max 107 chars, mean 48)
+    employer            string      (3-91 chars)
+    description_derived string      <-- 100% NULL, see 3.1
+    region              string
+    nuts_code           string
+    esco_occupation     struct{uri, label}
+    esco_skills         list<struct{uri, label}>
+    is_green            bool
+    kldb_2010           string      (German occupation code)
+    seniority           string
+    salary_range        struct{min_eur, max_eur, period}
+
+2.3 It is a SNAPSHOT, not an archive [VERIFIED]
+    fetched_at spans only 2026-06-05 23:41:30 -> 2026-06-06 01:40:06 UTC.
+    Every row was scraped in one ~2 hour window on the night of 5/6 June 2026.
+
+    posted_date spans 2015-10-20 -> 2026-06-06 across 1,004 distinct days,
+    but the distribution is heavily front-loaded toward the scrape date:
+
+        2026-06 (6 days)  15,760
+        2026-05           22,141
+        2026-04            7,522
+        2026-03            5,156
+        2026-02            2,959
+        2026-01            2,608
+        2025-12            1,560
+        2025-11            1,801
+        2025-10            1,569
+        2025-09            1,496
+        ... 78 distinct months in total, single-digit counts before ~2021
+
+    THIS IS THE MOST IMPORTANT ANALYTICAL FACT IN THE DATASET. See 3.6.
+
+2.4 Vacancy age at scrape date (posted_date -> 2026-06-06) [VERIFIED]
+        <= 7 days      16,591
+        8 - 30 days    19,698
+        31 - 90 days   13,426
+        91 - 180 days   7,574
+        181 - 365 days  8,120
+        > 1 year        5,175
+    => 13,295 postings (18.8%) had been open for more than six months.
+
+2.5 Geography [VERIFIED]
+    region: 27 distinct values, 113 NULL. nuts_code: 16 distinct, 473 NULL.
+        Nordrhein-Westfalen  19,479      Niedersachsen         5,403
+        Bayern               10,205      Hessen                4,963
+        Sachsen               7,915      Hamburg               4,574
+        Berlin                5,889      Bremen                3,429
+        Baden-Wuerttemberg    5,415      (+ smaller Laender)
+    Austria: 355 rows. Switzerland: 2 rows.
+    => Despite LITIT's DACH focus, this data is ~99.3% Germany. The A and CH
+       in DACH are effectively absent. Say this out loud in the demo before
+       a judge says it for us.
+
+2.6 Employer concentration [VERIFIED]
+    postings per employer     employers    postings
+        1                       11,855      11,855
+        2                        3,371       6,742
+        3-5                      2,656       9,728
+        6-10                     1,044       7,871
+        11-50                      872      17,563
+        50+                        144      16,784
+    => 144 employers (0.7%) account for 23.8% of all postings. Who they are
+       matters enormously - see 3.7.
+
+
+================================================================================
+3. RED FLAGS - WHAT THE README DOES NOT TELL YOU     [entry 2026-08-28]
+================================================================================
+
+The README advertises "employer, job title, location, publication date,
+source URL, seniority, occupation classifications, extracted skills and
+metadata". Technically true. Practically misleading. Measured reality:
+
+3.1 [VERIFIED] THERE IS NO JOB DESCRIPTION TEXT. AT ALL.
+    description_derived is NULL in 70,584 of 70,584 rows (100%).
+    n_unique = 0.
+
+    Consequence: every plan of the form "let the LLM read the job ad and
+    extract tech stack / project context / pain points" is DEAD on this
+    dataset. The only free text we have is the job TITLE (mean 48 chars).
+    Most teams will discover this hours in. We know it now.
+
+3.2 [VERIFIED] THE ESCO OCCUPATION LABELS ARE FREQUENTLY WRONG.
+    Row-level examples straight from the file:
+      "Gesundheits- und Pflegeassistent/in - GPA"  -> esco: "auditing clerk"
+      "Betreuungskraft / Alltagsbegleiter/in"      -> esco: "furniture
+                                                      specialised seller"
+      "Fullstack Developer (m/w/d)"                -> esco: "rubber goods
+                                                      assembler"
+      "Junior Java Entwickler (m/w/d)"             -> esco: "youth worker"
+      "DevOps Engineer (m/w/d)"                    -> esco: "knitting machine
+                                                      supervisor"
+    In aggregate the ESCO distribution looks plausible (top labels:
+    healthcare assistant 2,408; electrical engineering technician 2,117;
+    software developer 747) - which is exactly what makes it dangerous.
+    It is wrong per row while looking sane in aggregate.
+
+3.3 [VERIFIED] esco_skills LOOKS SYNTHETIC.
+    70,574 of 70,584 rows carry EXACTLY 5 skills (max 5, mean 4.98).
+    A real skill-extraction pipeline does not return exactly five skills for
+    99.99% of documents. This is a fixed top-5 from some automated tagger,
+    and 3.2 shows the tagger is unreliable.
+    => Do not build the scoring on esco_skills. If we use them at all it is
+       as weak, aggregated evidence only, never as a row-level fact shown
+       to a user.
+
+3.4 [VERIFIED] THE GERMAN OCCUPATION CODE (kldb_2010) IS ALSO UNRELIABLE.
+    KldB section 43 = "Informatik-, IKT-Berufe" (the IT section).
+    Present subcodes: 431 (4,670), 433 (1,518), 432 (948). Total 7,136.
+    Subcode 434 - "Softwareentwicklung und Programmierung" - is ABSENT
+    ENTIRELY. The single most relevant IT code for us does not appear.
+
+    Cross-checking KldB against a keyword read of the title:
+                          title looks IT   title looks non-IT
+        kldb 43                  4,711              2,425
+        not kldb 43              2,191             61,257
+
+    - 34% of "IT" KldB rows have non-IT titles
+      (e.g. "Kaufmaennischer Mitarbeiter", "Projekteinkaeufer",
+       "Leitende Rezeptionskraft / Front Office-Manager" are all coded 43).
+    - 32% of IT-looking titles are NOT coded 43
+      (e.g. "Junior Java Entwickler" is coded 83113, "Fullstack Developer"
+       25112).
+    CAVEAT: our title keyword rule is itself a heuristic, so both figures are
+    approximate. But cases like a Java developer coded as a youth worker are
+    not borderline.
+
+    CORRECTION 2026-08-28 (second pass): the first two versions of this test
+    were both wrong.
+      v1 used the pattern "it " which also matches "Arbeit ".
+      v2 used "\bit\b" - and DUCKDB'S REGEX ENGINE (RE2) SILENTLY IGNORES \b.
+         "\bsap\b" matches 0 rows; "sap" matches 525. Every \b alternative in
+         the filter never fired, so v2 undercounted IT postings.
+    Numbers above are v3, matching against a space-padded token string:
+         ' '||regexp_replace(lower(title),'[^a-z0-9aeoeuess#+]+',' ','g')||' '
+    NEVER USE \b ANYWHERE IN THIS CODEBASE.
+
+3.5 [VERIFIED] seniority AND salary ARE EFFECTIVELY EMPTY.
+    seniority: unknown 62,088 (88.0%), entry 5,149, senior 1,773, lead 901,
+               junior 672, mid 1.
+               A field where "mid" has exactly ONE row is not a real field.
+    salary_range: NULL in 69,330 of 70,584 (98.2%). Only 952 rows have a
+               min_eur. Unusable as a signal; usable only as a rare bonus fact.
+
+3.6 [INFERRED, high confidence] SURVIVORSHIP BIAS IN THE TIME AXIS.
+    Because this is a one-night snapshot of CURRENTLY OPEN postings (2.3),
+    a count of postings by posted_date is NOT a hiring-volume time series.
+    Old months only contain the postings that are STILL UNFILLED today.
+    Everything filled or expired has vanished from the data.
+
+    So the naive stretch goal "hiring velocity / acceleration" computed as
+    postings-per-month from this file is WRONG, and will look right. Any team
+    that plots that curve is plotting a decay function of vacancy survival,
+    not hiring demand.
+
+    The flip side is our biggest opportunity: if a posting is still open,
+    that vacancy is UNFILLED. Age of an open vacancy is a direct, defensible
+    measure of unmet hiring demand - which is precisely the pain that a
+    nearshore delivery partner solves. See section 5.
+
+3.7 [VERIFIED] VOLUME RANKING RETURNS STAFFING AGENCIES, NOT CUSTOMERS.
+    Top employers by total postings:
+        Deutsche Bahn AG                                   816
+        Jan Schreiner Private Arbeitsvermittlung Arbitex   571   <- agency
+        PerZukunft Arbeitsvermittlung GmbH&Co.KG           544   <- agency
+        Pflegia GmbH                                       362   <- agency
+        PerZukunft ... GmbH&Co.KG GmbH & Co. KG            360   <- SAME AGENCY
+        ARWA Personaldienstleistungen GmbH                 336   <- agency
+        DIS AG Germany                                     309   <- agency
+        Akkodis Germany Tech Experts GmbH                  295   <- agency
+        Siemens Energy Global GmbH & Co. KG                283
+        TimePartner Personalmanagement GmbH                282   <- agency
+        ... Hays 180, Michael Page 171, MANPOWER 152, I.K. Hofmann 155
+
+    Restricted to IT-looking titles, the top of the list is worse:
+        Jan Schreiner ... Arbitex                          154   <- agency
+        puro Personaldienstleistung GmbH                   100   <- agency
+        DIS AG Personaldienstleistungen                     81   <- agency
+        Akkodis Germany Tech Experts GmbH                   74   <- agency
+        DIS AG Germany                                      71   <- agency
+        NTT DATA Business Solutions ... GmbH                69   <- OUR PARENT
+        Finanz Informatik GmbH & Co. KG                     57
+        PerZukunft Arbeitsvermittlung GmbH&Co.KG            46   <- agency
+        BWI GmbH                                            45
+        Deloitte GmbH                                       43   <- competitor
+        NTT DATA Deutschland SE                             40   <- OUR PARENT
+        FERCHAU GmbH Niederlassung Bremen City              36   <- agency
+        alfatraining Bildungszentrum GmbH                   35   <- TRAINING
+                                                                    PROVIDER,
+                                                                    not an
+                                                                    employer
+
+    This is the empirical proof of the README's central constraint. Ranking
+    by vacancy volume yields: recruitment agencies, consultancies who are our
+    competitors, a training school, and our own parent company. Almost no
+    actual customers. THIS SLIDE WINS THE DEMO - it shows we understood the
+    problem instead of just obeying an instruction.
+
+    A narrow keyword test (personaldienst|zeitarbeit|arbeitsvermittlung|
+    personalservice|personalmanagement|personalberatung|staffing|recruit)
+    already flags 7,375 of 70,543 rows (10.5%) - and it misses DIS AG, Hays,
+    Michael Page, Akkodis, Manpower, Amadeus Fire, FERCHAU, Orizon entirely.
+    True intermediary share is materially higher. [INFERRED]
+
+3.8 [VERIFIED] ENTITY RESOLUTION IS ALREADY BROKEN IN THE TOP 5.
+        "PerZukunft Arbeitsvermittlung GmbH&Co.KG"                544
+        "PerZukunft Arbeitsvermittlung GmbH&Co.KG GmbH & Co. KG"  360
+    Same company, legal form duplicated by whatever built the dataset.
+    Merging them = 904 postings and a rank change. Also:
+        "DIS AG Germany" 309 / "DIS AG Personaldienstleistungen" 82
+        "NTT DATA Deutschland SE" / "NTT DATA" / "NTT Germany AG & Co. KG"
+    A concrete, demonstrable before/after for the demo.
+
+3.9 [VERIFIED] EXACT DUPLICATE ROWS EXIST.
+    858 groups share identical (employer, title, posted_date),
+    accounting for 1,338 redundant rows. Small but must be deduped before
+    any counting, or it inflates the exact companies we rank highest.
+
+3.10 SUMMARY - WHAT IS ACTUALLY TRUSTWORTHY
+    TRUST:      employer (dirty but real), title, posted_date, fetched_at,
+                region / nuts_code, source_url (real link = real evidence)
+    DISTRUST:   esco_occupation, esco_skills, kldb_2010, seniority
+    IGNORE:     description_derived (empty), salary_range (98% empty),
+                is_green (5,031 true, no relevance to our use case)
+
+    => We must DERIVE occupation, seniority and tech stack from the TITLE
+       ourselves. That is the core data-engineering task of this hackathon,
+       and it is not what the README implies.
+
+
+================================================================================
+4. THE ADDRESSABLE UNIVERSE             [entry 2026-08-28]
+================================================================================
+
+[VERIFIED] Filtering to IT-looking titles (token-based, see caveat 3.4):
+    IT-looking postings:                     6,902
+    distinct employers with >=1 IT posting:  2,691
+    employers with >=3 IT postings:            481
+
+[VERIFIED] After the deterministic classification gate (name lexicon removes
+1,720 intermediaries / 1,487 IT postings, 52 training providers, 5 own-group
+entities) and excluding apprentice/Werkstudent postings:
+    companies with >=2 core IT postings:       742
+    companies with >=3 core IT postings:       377
+    companies with >=3 AND a posting <90d old: 335   <- the working pool
+    companies with >=5 core IT postings:       187
+
+[VERIFIED] IT share of total postings is the strongest end-client
+discriminator. Across the 377 companies with >=3 IT postings:
+        <10% IT     39 companies      50-80% IT   108
+        10-25% IT   56                >=80% IT     97
+        25-50% IT   77
+    ~205 of 377 are IT firms (i.e. competitors). Filtering to <30% IT share
+    surfaces Siemens Energy, Deutsche Bahn, BMW, AXA, Deutsche Telekom, REWE,
+    HUK-COBURG, Rossmann, Vodafone - unmistakably real end clients.
+
+[INFERRED] Genuine prospect pool is therefore 95-170 companies. Good size:
+small enough to run an LLM over every one, big enough that ranking matters.
+
+
+================================================================================
+5. DESIGN IMPLICATIONS                  [entry 2026-08-28]
+================================================================================
+
+Derived from sections 1-4. Not yet decided - input for the design session.
+
+5.1 The signal that the data actually supports
+    Because we have a snapshot of open vacancies with publication dates, the
+    strongest defensible measure is UNMET DEMAND, not hiring volume:
+      - how many IT vacancies a company has open RIGHT NOW
+      - how many have been open past 90 / 180 days
+      - how CONCENTRATED they are in one skill
+
+    CORRECTION 2026-08-28: two claims in the first version of this section
+    were tested and FAILED. Recording both, because both are traps.
+
+    (a) "Vacancy age = unmet demand" IS FALSE ON ITS OWN.
+        Ranking companies by median vacancy age returns: alfatraining
+        (a training school, 481d), Computacenter (473d), avivar experts,
+        BridgingIT, inovex, PPI AG, 360 Consulting, CANCOM, Deloitte (304d).
+        These are IT consultancies running EVERGREEN "always hiring" ads -
+        LITIT's competitors, not its customers. Age alone selects for exactly
+        the wrong companies.
+        => Age is only meaningful AFTER company classification. This is why
+           the algorithm is a cascade: the gate must precede the score.
+
+    (b) MEDIAN age is the wrong statistic even inside the eligible pool.
+        A company posting many fresh ads shows a low median regardless of how
+        hard its roles are to fill. Median age measures POSTING CADENCE, not
+        difficulty. Use COUNT of vacancies still open past 90/180 days - a
+        direct observation that survives the confound. Median age is retained
+        for display only.
+
+    (c) MARKET SCARCITY per tech family is NOT measurable from one snapshot.
+        Median vacancy age by family: SAP 14d (lowest), web 30d (highest).
+        That does not mean SAP is easy to fill - it means SAP ads are posted
+        more recently and churn faster. One snapshot cannot separate "posted
+        recently" from "filled quickly"; that needs two snapshots and a
+        duration model. Dropped from scoring, kept as context.
+        => A SECOND SNAPSHOT from the live BA API would make this properly
+           measurable. Highest-value upgrade available to us.
+
+5.2 Things we must NOT do
+      - do not rank by count (3.7 proves what that returns)
+      - do not compute month-over-month "velocity" from posted_date (3.6)
+      - do not surface esco_skills as facts to the user (3.2, 3.3)
+      - do not let an LLM invent a signal; the LLM phrases numbers we
+        computed, it never sources them
+
+5.3 Things that will differentiate us with judges
+      - the "naive ranking vs our ranking" side-by-side (3.7)
+      - filtering out intermediaries, and being able to explain how
+      - catching our own parent company in the results
+      - stating the survivorship-bias trap out loud (3.6) - it demonstrates
+        data judgement, and it is a free "limitations" slide the README
+        explicitly asks for
+      - every claim clicking through to a real arbeitsagentur.de URL
+
+5.4 Open design questions -> section 7
+
+
+================================================================================
+6. PRIOR ART AND EXTERNAL RESOURCES     [entry 2026-08-28]
+================================================================================
+
+6.1 LIVE DATA - the same source is queryable in real time
+    The dataset is a scrape of the Bundesagentur "jobsuche" API v4. That API
+    is publicly documented and reachable:
+      - github.com/bundesAPI/jobsuche-api  (community OpenAPI spec)
+      - github.com/wunderfrucht/jobsuche   (Rust client)
+      - arbeitsagentur.de hosts ~1.5M active postings [reported, unverified]
+    Three things this unlocks:
+      (a) the "live job acquisition" stretch goal is genuinely reachable;
+      (b) the API reportedly returns the FULL description text that our
+          dataset is missing (3.1). Enriching only our top ~100 ranked
+          companies would restore text signal cheaply;
+      (c) the API exposes filter parameters for Zeitarbeit (temp staffing)
+          and Privatvermittler (private agencies) - direct confirmation that
+          intermediary contamination (3.7) is a known, named problem.
+    [UNVERIFIED] We have not yet called the API or confirmed rate limits,
+    auth requirements, or that description text is really returned. DO THIS.
+
+6.2 Commercial analogues - this product category exists
+    PredictLeads, Revelio Labs, LinkUp, Coresignal, Lightcast (ex-Burning
+    Glass), Thinknum, JobsPikr. The accepted industry framing is "hiring as
+    a buying signal": an influx of job ads implies budget movement and
+    capability gaps a vendor can fill. Worth one sentence in the demo to
+    show we know we are building a recognised category, not a toy.
+
+6.3 Academic grounding for "job postings as a firm-level signal"
+    - Hershbein & Kahn (2018), widely used validation that online postings
+      track official occupation/industry statistics, and that firms shift
+      skill requirements in response to shocks.
+    - NBER w28257 "AI and Jobs: Evidence from Online Vacancies" - builds
+      establishment-level AI adoption measures from vacancy skill text.
+    - Lightcast/Burning Glass representativeness analyses - useful for how
+      to state coverage limitations honestly.
+    Value to us: one slide citing that firm-level inference from vacancy
+    data is an established method lifts this above "we made up a score".
+
+6.4 Entity resolution (needed for 3.8)
+    Standard approach: strip legal forms (GmbH, AG, SE, KG, GmbH & Co. KG,
+    e.K., mbH, oHG), normalise umlauts, casefold, then fuzzy match.
+    Known trap: tokens like Group, Holding, Services, Solutions, Deutschland
+    carry real meaning and must NOT be stripped, or distinct subsidiaries
+    collapse into one. Our own data shows both failure modes
+    (PerZukunft = under-merged; NTT entities = genuinely different legal
+    entities of one group).
+
+6.5 Taxonomies we could use for title -> occupation
+    - KldB 2010 (German official). Full 5-digit code list downloadable from
+      BIBB metadata repository. We would be re-deriving codes ourselves,
+      since the dataset's codes are unreliable (3.4).
+    - ESCO (EU occupation/skill taxonomy). Same caveat.
+    [UNKNOWN] Whether a taxonomy is worth the time at all, versus a curated
+    keyword/tech-stack dictionary built for the IT segment only. The second
+    is smaller, faster, fully explainable, and covers the only segment we
+    care about. Leaning that way.
+
+
+================================================================================
+7. OPEN QUESTIONS                       [entry 2026-08-28]
+================================================================================
+
+DATA
+ Q1  Does the live BA API actually return full description text, and what
+     are its rate limits / auth requirements?               [blocks 6.1b]
+ Q2  Can we identify the ~144 high-volume employers as agency vs employer
+     reliably enough to state a precision figure?
+ Q3  How many of the 2,052 IT employers survive intermediary filtering?
+
+PRODUCT
+ Q4  Confirm the LITIT-as-customer framing with organisers (1.2).
+ Q5  What tech stacks does LITIT actually deliver? Their site does not say.
+     Knowing this turns "IT hiring" into "hiring OUR stack" and makes the
+     match far sharper. Ask a mentor.
+ Q6  Is there a judging rubric with weightings?
+
+TEAM / LOGISTICS
+ Q7  Gustas's stack, and who owns which half.
+ Q8  Does either of us read German? Affects title parsing quality.
+ Q9  Submission mechanics and whether slides are required.
+
+
+================================================================================
+8. SOURCES
+================================================================================
+Challenge README   github.com/LITIT-Hackathon/hackathon-market-intelligence
+LITIT              litit.tech
+Dataset            huggingface.co/datasets/mischeiwiller/german-job-postings
+HF datasets-server datasets-server.huggingface.co (/info /statistics /first-rows)
+BA jobsuche API    github.com/bundesAPI/jobsuche-api
+KldB 2010          metadaten.bibb.de/de/classification/detail/4
+                   statistik.arbeitsagentur.de (KldB 2010 Band 2 PDF)
+Hershbein & Kahn   nber.org/system/files/working_papers/w22762/w22762.pdf
+AI and vacancies   nber.org/system/files/working_papers/w28257/w28257.pdf
+Vendor landscape   predictleads.com/blog/top-5-job-data-providers-2026/
+                   coresignal.com/blog/best-job-posting-data-providers-comparison-and-use-cases/
+Entity resolution  medium.com/tilo-tech/how-to-normalize-company-names-for-deduplication-and-matching-21e9720b30ba
+
+================================================================================
+END OF ENTRY 2026-08-28
+================================================================================

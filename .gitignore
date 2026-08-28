@@ -1,0 +1,9 @@
+# data artifacts (re-downloadable from Hugging Face)
+data/
+*.parquet
+*.db
+
+# python
+.venv/
+__pycache__/
+*.pyc
