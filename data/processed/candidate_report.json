@@ -1,0 +1,293 @@
+{
+  "elapsed_s": 3.11,
+  "generated": "2026-08-28 19:06 UTC",
+  "source": "michaelozon/candidate-matching-synthetic (MIT, synthetic)",
+  "counts": {
+    "candidates": 10000,
+    "openings": 2500,
+    "skills": 73,
+    "roles": 24,
+    "role_cells": 72,
+    "tech_candidates": 2949
+  },
+  "distributions": {
+    "role": {
+      "Sales Representative": 460,
+      "Backend Engineer": 456,
+      "Marketing Manager": 455,
+      "Product Manager": 453,
+      "Associate Product Manager": 438,
+      "Financial Analyst": 433,
+      "Software Engineer": 432,
+      "Operations Manager": 427,
+      "BI Analyst": 426,
+      "Full Stack Engineer": 423,
+      "Business Analyst": 422,
+      "FP&A Analyst": 417,
+      "Technical Support Specialist": 414,
+      "Content Marketer": 409,
+      "Business Development Manager": 407,
+      "Data Analyst": 404,
+      "Project Manager": 398,
+      "Program Coordinator": 394,
+      "Technical Product Manager": 394,
+      "Junior Accountant": 393,
+      "Performance Marketer": 392,
+      "Customer Support Specialist": 388,
+      "Customer Success Associate": 384,
+      "Account Executive": 381
+    },
+    "role_family": {
+      "engineering": 1311,
+      "product": 1285,
+      "marketing": 1256,
+      "sales": 1248,
+      "finance": 1243,
+      "delivery": 1219,
+      "support": 1186,
+      "data": 830,
+      "analysis": 422
+    },
+    "seniority": {
+      "junior": 3372,
+      "mid": 3365,
+      "senior": 3263
+    },
+    "experience_band": {
+      "0-2 yrs": 4009,
+      "6-8 yrs": 2058,
+      "3-5 yrs": 2037,
+      "9+ yrs": 1896
+    },
+    "industry": {
+      "Retail": 1084,
+      "E-commerce": 1018,
+      "Gaming": 1018,
+      "SaaS": 1014,
+      "Logistics": 1012,
+      "Travel": 992,
+      "Cybersecurity": 968,
+      "EdTech": 967,
+      "Healthcare": 964,
+      "FinTech": 963
+    },
+    "education": {
+      "BSc": 2071,
+      "MBA": 2031,
+      "MSc": 1980,
+      "BA": 1965,
+      "High School": 1953
+    },
+    "primary_skill_family": {
+      "data": 1593,
+      "product": 1336,
+      "engineering": 1311,
+      "marketing": 1256,
+      "sales": 1248,
+      "support": 1186,
+      "delivery": 1090,
+      "finance": 980
+    }
+  },
+  "skills": {
+    "vocabulary": 73,
+    "per_candidate_mean": 6.49,
+    "per_candidate_min": 5,
+    "per_candidate_max": 8,
+    "unmapped_to_family": 0,
+    "tension_baseline": 0.6931,
+    "tension_spread": [
+      0.85,
+      1.18
+    ],
+    "highest_tension": [
+      {
+        "skill": "Project Planning",
+        "family": "delivery",
+        "supply": 786,
+        "demand": 160.5,
+        "tension": 1.179
+      },
+      {
+        "skill": "Intercom",
+        "family": "support",
+        "supply": 791,
+        "demand": 159.5,
+        "tension": 1.164
+      },
+      {
+        "skill": "SLA",
+        "family": "support",
+        "supply": 766,
+        "demand": 154.5,
+        "tension": 1.164
+      },
+      {
+        "skill": "Valuation",
+        "family": "finance",
+        "supply": 807,
+        "demand": 159.5,
+        "tension": 1.141
+      },
+      {
+        "skill": "Budgeting",
+        "family": "finance",
+        "supply": 777,
+        "demand": 151.5,
+        "tension": 1.125
+      },
+      {
+        "skill": "Excel",
+        "family": "data",
+        "supply": 1551,
+        "demand": 300.5,
+        "tension": 1.118
+      },
+      {
+        "skill": "Jira",
+        "family": "product",
+        "supply": 772,
+        "demand": 148.0,
+        "tension": 1.106
+      },
+      {
+        "skill": "Outbound Outreach",
+        "family": "sales",
+        "supply": 810,
+        "demand": 154.5,
+        "tension": 1.101
+      },
+      {
+        "skill": "Stakeholder Communication",
+        "family": "delivery",
+        "supply": 795,
+        "demand": 151.5,
+        "tension": 1.1
+      },
+      {
+        "skill": "Cash Flow",
+        "family": "finance",
+        "supply": 791,
+        "demand": 150.0,
+        "tension": 1.094
+      }
+    ],
+    "lowest_tension": [
+      {
+        "skill": "Scrum",
+        "family": "product",
+        "supply": 812,
+        "demand": 119.5,
+        "tension": 0.849
+      },
+      {
+        "skill": "Prioritization",
+        "family": "product",
+        "supply": 858,
+        "demand": 126.5,
+        "tension": 0.851
+      },
+      {
+        "skill": "Email Marketing",
+        "family": "marketing",
+        "supply": 815,
+        "demand": 121.0,
+        "tension": 0.857
+      },
+      {
+        "skill": "Agile",
+        "family": "product",
+        "supply": 841,
+        "demand": 125.0,
+        "tension": 0.858
+      },
+      {
+        "skill": "Conversion Optimization",
+        "family": "marketing",
+        "supply": 815,
+        "demand": 122.0,
+        "tension": 0.864
+      },
+      {
+        "skill": "Product Strategy",
+        "family": "product",
+        "supply": 840,
+        "demand": 126.5,
+        "tension": 0.869
+      },
+      {
+        "skill": "Java",
+        "family": "engineering",
+        "supply": 853,
+        "demand": 129.5,
+        "tension": 0.876
+      },
+      {
+        "skill": "Landing Pages",
+        "family": "marketing",
+        "supply": 826,
+        "demand": 127.5,
+        "tension": 0.891
+      },
+      {
+        "skill": "Stakeholder Management",
+        "family": "delivery",
+        "supply": 816,
+        "demand": 127.0,
+        "tension": 0.898
+      },
+      {
+        "skill": "Tableau",
+        "family": "data",
+        "supply": 852,
+        "demand": 132.5,
+        "tension": 0.898
+      }
+    ]
+  },
+  "pools": {
+    "mean_qualified_pool": 866.4,
+    "min_qualified_pool": 643,
+    "max_qualified_pool": 1436,
+    "mean_qualified_for_per_candidate": 216.6
+  },
+  "ground_truth_audit": {
+    "labelled_pairs": 75000,
+    "labels_per_opening": {
+      "min": 30,
+      "max": 30,
+      "mean": 30.0
+    },
+    "satisfy_documented_rule": 1.0,
+    "same_seniority": 0.3359,
+    "same_role": 0.3321,
+    "mean_qualified_pool": 866.4,
+    "labelled_share_of_pool": 0.0346,
+    "candidates_ever_labelled": 9971
+  },
+  "bridge_to_german_data": {
+    "candidate_vocabulary": 73,
+    "overlapping_skills": 7,
+    "overlap_pct": 10,
+    "overlapping": [
+      "CI/CD",
+      "Docker",
+      "Java",
+      "JavaScript",
+      "Power BI",
+      "Python",
+      "SQL"
+    ],
+    "german_it_coverage_pct": 3.3,
+    "missing_from_candidates": [
+      "AI/ML",
+      "Embedded",
+      "Data Science",
+      "Data Engineering",
+      "Security",
+      "Cloud",
+      "SAP",
+      "Network"
+    ]
+  }
+}

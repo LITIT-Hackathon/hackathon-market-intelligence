@@ -72,6 +72,18 @@ main{background:var(--paper);border-radius:var(--r) var(--r) 0 0;padding:38px 32
 .hbar .t i.mut{background:var(--line-2)}
 .hbar .v{font:500 12px/1 var(--sans);color:var(--muted);text-align:right;font-variant-numeric:tabular-nums}
 
+.hbar2{display:grid;grid-template-columns:minmax(90px,150px) 1fr auto;gap:9px 12px;align-items:center}
+.hbar2 .k{font:400 12.5px/1.35 var(--sans);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.hbar2 .t2{display:flex;flex-direction:column;gap:3px}
+.hbar2 .t2 i{display:block;height:9px;border-radius:2px;min-width:2px}
+.hbar2 .t2 i.s{background:var(--ink)}
+.hbar2 .t2 i.d{background:var(--accent)}
+.hbar2 .v{font:500 12px/1 var(--sans);color:var(--muted);text-align:right;font-variant-numeric:tabular-nums}
+.lg{display:flex;gap:16px;margin-top:14px;font:400 11px/1 var(--sans);color:var(--muted)}
+.lg span{display:inline-flex;align-items:center;gap:6px}
+.lg i{width:12px;height:9px;border-radius:2px;display:inline-block}
+.lg i.s{background:var(--ink)}
+.lg i.d{background:var(--accent)}
 .cols{display:flex;align-items:flex-end;gap:3px;height:150px;border-bottom:1px solid var(--line);padding-bottom:0}
 .cols div{flex:1;background:var(--ink);border-radius:2px 2px 0 0;min-height:2px;position:relative}
 .cols div.acc{background:var(--accent)}
@@ -174,9 +186,24 @@ function cols(el, rows, opts = {}) {
       `<span>${(opts.every && i % opts.every) ? '' : esc(r[0])}</span>`).join('') + '</div>';
 }
 
+function hbar2(el, rows, opts = {}) {
+  const max = Math.max(1e-9, ...rows.flatMap(r => [r[1], r[2]]));
+  el.innerHTML = '<div class="hbar2">' + rows.map(r => {
+    const a = (r[1] / max * 100).toFixed(1), b = (r[2] / max * 100).toFixed(1);
+    return `<div class="k" title="${esc(r[0])}">${esc(r[0])}</div>`
+         + `<div class="t2">`
+         + `<i class="s" style="width:${a}%" title="supply ${(r[1]*100).toFixed(1)}%"></i>`
+         + `<i class="d" style="width:${b}%" title="demand ${(r[2]*100).toFixed(1)}%"></i></div>`
+         + `<div class="v">${r[3] !== undefined ? r[3].toFixed(2) : ''}</div>`;
+  }).join('') + '</div>'
+  + '<div class="lg"><span><i class="s"></i>supply</span><span><i class="d"></i>demand</span>'
+  + '<span style="margin-left:auto">tension</span></div>';
+}
+
 /* ---------- generic table ---------- */
 function makeTable(cfg) {
-  const state = { sort: cfg.sort, dir: cfg.dir || -1, page: 0, per: 100, rows: [] };
+  const state = { sort: Math.min(cfg.sort ?? 0, cfg.columns.length - 1),
+                  dir: cfg.dir || -1, page: 0, per: cfg.per || 100, rows: [] };
   const head = $(cfg.head), body = $(cfg.body), count = $(cfg.count), pager = $(cfg.pager);
 
   head.innerHTML = '<tr>' + cfg.columns.map((c, i) =>
@@ -342,4 +369,88 @@ const renderPostings = makeTable({
 ['#po-q', '#po-sen', '#po-reg', '#po-tech', '#po-age', '#po-hidecomp']
   .forEach(s => { $(s).oninput = renderPostings; $(s).onchange = renderPostings; });
 renderPostings();
+
+/* ---------- talent (only when the candidate parser has been run) ---------- */
+if (D.talent) {
+  const T = D.talent, TC = T.charts;
+
+  hbar2($('#t-supplydemand'), TC.supply_demand);
+  hbar($('#t-tensiontop'), TC.tension_top.map(r => [r[0], r[1], 'acc']), { fmt: v => v.toFixed(2) });
+  hbar($('#t-tensionbot'), TC.tension_bottom.map(r => [r[0], r[1], 'mut']), { fmt: v => v.toFixed(2) });
+  hbar($('#t-rolefam'), TC.role_family);
+  hbar($('#t-roledemand'), TC.role_demand);
+  hbar($('#t-seniority'), TC.seniority);
+  hbar($('#t-experience'), TC.experience.map(r => [r[0], r[1], 'mut']));
+  hbar($('#t-industry'), TC.industry);
+  hbar($('#t-education'), TC.education.map(r => [r[0], r[1], 'mut']));
+
+  /* skill market table */
+  const SK = T.skills, sIdx = {};
+  SK.cols.forEach((c, i) => sIdx[c] = i);
+  const sx = k => r => r[sIdx[k]];
+  const renderSkills = makeTable({
+    head: '#sk-head', body: '#sk-body', count: '#sk-count', pager: '#sk-pager',
+    total: SK.rows.length, noun: 'skills', sort: 7, dir: -1,
+    columns: [
+      { t: 'Skill', v: sx('skill'), cls: 'nm' },
+      { t: 'Family', v: sx('skill_family'), render: r => `<span class="tag">${esc(sx('skill_family')(r))}</span>` },
+      { t: 'Supply', v: sx('supply'), r: true },
+      { t: 'Supply %', v: sx('supply_share'), r: true, render: r => pct(sx('supply_share')(r)) },
+      { t: 'Must-have', v: sx('demand_must'), r: true },
+      { t: 'Nice-to-have', v: sx('demand_nice'), r: true },
+      { t: 'Demand %', v: sx('demand_share'), r: true, render: r => pct(sx('demand_share')(r)) },
+      { t: 'Tension', v: sx('tension'), r: true, render: r => {
+          const v = sx('tension')(r);
+          return `<span class="age ${v >= 1 ? 'old' : ''}">${v.toFixed(2)}</span>`; } },
+    ],
+    filter: () => {
+      const q = $('#sk-q').value.trim().toLowerCase(), fam = $('#sk-fam').value;
+      return SK.rows.filter(r =>
+        (!q || sx('skill')(r).toLowerCase().includes(q)) && (!fam || sx('skill_family')(r) === fam));
+    },
+  });
+  ['#sk-q', '#sk-fam'].forEach(s => { $(s).oninput = renderSkills; $(s).onchange = renderSkills; });
+  renderSkills();
+
+  /* candidates table */
+  const CA = T.candidates, cIdx = {};
+  CA.cols.forEach((c, i) => cIdx[c] = i);
+  const cx = k => r => r[cIdx[k]];
+  const TECH_FAMS = new Set(['engineering', 'data']);
+  const renderCands = makeTable({
+    head: '#ca-head', body: '#ca-body', count: '#ca-count', pager: '#ca-pager',
+    total: CA.rows.length, noun: 'candidates', sort: 8, dir: -1,
+    columns: [
+      { t: 'ID', v: cx('candidate_id'), cls: 'nm' },
+      { t: 'Role', v: cx('role'), cls: 'nm' },
+      { t: 'Family', v: cx('role_family'), render: r => {
+          const f = cx('role_family')(r);
+          return `<span class="tag ${TECH_FAMS.has(f) ? 'pub' : ''}">${esc(f)}</span>`; } },
+      { t: 'Seniority', v: cx('seniority') },
+      { t: 'Years', v: cx('years_experience'), r: true },
+      { t: 'Industry', v: cx('industry') },
+      { t: 'Education', v: cx('education') },
+      { t: 'Skills', v: cx('skills'), sortKey: r => cx('skills')(r).length,
+        render: r => cx('skills')(r).map(i => `<span class="chip">${esc(T.dicts.skills[i])}</span>`).join('') },
+      { t: 'Qualified for', v: cx('qualified_for_openings'), r: true,
+        render: r => fmt(cx('qualified_for_openings')(r)) },
+    ],
+    filter: () => {
+      const q = $('#ca-q').value.trim().toLowerCase();
+      const role = $('#ca-role').value, sen = $('#ca-sen').value, ind = $('#ca-ind').value;
+      const techOnly = $('#ca-tech').checked;
+      return CA.rows.filter(r =>
+        (!role || cx('role')(r) === role)
+        && (!sen || cx('seniority')(r) === sen)
+        && (!ind || cx('industry')(r) === ind)
+        && (!techOnly || TECH_FAMS.has(cx('role_family')(r)))
+        && (!q || cx('role')(r).toLowerCase().includes(q)
+               || cx('industry')(r).toLowerCase().includes(q)
+               || cx('skills')(r).some(i => T.dicts.skills[i].toLowerCase().includes(q))));
+    },
+  });
+  ['#ca-q', '#ca-role', '#ca-sen', '#ca-ind', '#ca-tech']
+    .forEach(s => { $(s).oninput = renderCands; $(s).onchange = renderCands; });
+  renderCands();
+}
 """

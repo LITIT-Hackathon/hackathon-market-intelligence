@@ -155,6 +155,80 @@ def test_present_guards_nan():
     assert C._present("x")
 
 
+# ---------------------------------------------------------------------------
+# candidate dataset
+# ---------------------------------------------------------------------------
+
+def test_candidate_taxonomies_are_complete():
+    """Every role and skill in the dataset must map to a family, or aggregates lie."""
+    assert len(ref.ROLE_TO_FAMILY) == 24, len(ref.ROLE_TO_FAMILY)
+    assert len(ref.SKILL_TO_FAMILY) == 73, len(ref.SKILL_TO_FAMILY)
+    # families must not overlap
+    for table in (ref.ROLE_FAMILIES, ref.SKILL_FAMILIES):
+        flat = [x for members in table.values() for x in members]
+        assert len(flat) == len(set(flat)), "an entry appears in two families"
+
+
+def test_candidate_mappings():
+    assert ref.CANDIDATE_SENIORITY["Senior"] == "senior"
+    assert set(ref.CANDIDATE_SENIORITY.values()) <= set(ref.SENIORITY_ORDER)
+    # industries with no equivalent stay None rather than being forced into a bucket
+    assert ref.CANDIDATE_INDUSTRY_TO_DOMAIN["FinTech"] == "Banking"
+    assert ref.CANDIDATE_INDUSTRY_TO_DOMAIN["Gaming"] is None
+    assert set(v for v in ref.CANDIDATE_INDUSTRY_TO_DOMAIN.values() if v) <= set(ref.DOMAIN_PATTERNS)
+
+
+def test_experience_bands_are_contiguous():
+    covered = set()
+    for lo, hi, _ in ref.EXPERIENCE_BANDS:
+        covered |= set(range(lo, min(hi, 40) + 1))
+    assert set(range(0, 13)) <= covered, "a plausible years_experience value has no band"
+
+
+def test_skill_market_tension_is_normalised():
+    """Tension must centre on 1.0, or the number reads as meaningful while not being."""
+    import pandas as pd
+    from opradar import candidates as cand
+
+    profiles = pd.DataFrame({
+        "candidate_id": ["a", "b", "c", "d"],
+        # 3 of 4 hold Python, 1 of 4 holds Java
+        "skills": [["Python", "SQL"], ["Python", "SQL"], ["Python", "SQL"], ["Java", "SQL"]],
+    })
+    openings = pd.DataFrame({
+        "opening_id": ["j1", "j2"],
+        "must_have_skills": [["Java"], ["Java"]],
+        "nice_to_have_skills": [[], []],
+    })
+    market = cand.build_skill_market(profiles, openings)
+    row = {r.skill: r for r in market.itertuples()}
+    # Java: scarce on the bench and demanded by every opening -> well above 1
+    assert row["Java"].tension > 1.5, row["Java"].tension
+    # Python: plentiful and unwanted -> at the bottom
+    assert row["Python"].tension < row["Java"].tension
+    assert market["tension"].notna().all()
+
+
+def test_qualified_pool_matches_the_documented_rule():
+    import pandas as pd
+    from opradar import candidates as cand
+
+    profiles = pd.DataFrame({
+        "candidate_id": ["a", "b", "c"],
+        "skills": [["X", "Y", "Z"], ["X", "Y"], ["X"]],
+    })
+    openings = pd.DataFrame({
+        "opening_id": ["j"],
+        "must_have_skills": [["X", "Y", "Z"]],
+        "nice_to_have_skills": [[]],
+    })
+    matrix, index = cand.skill_matrix(profiles)
+    profiles, openings = cand.compute_pools(profiles, openings, matrix, index)
+    # 3/3 and 2/3 clear the 0.6 threshold; 1/3 does not
+    assert int(openings["qualified_pool"].iloc[0]) == 2
+    assert profiles["qualified_for_openings"].tolist() == [1, 1, 0]
+
+
 if __name__ == "__main__":
     failures = 0
     for name, fn in sorted(globals().items()):

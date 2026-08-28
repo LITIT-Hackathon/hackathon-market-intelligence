@@ -119,6 +119,82 @@ def build_charts(postings: pd.DataFrame, companies: pd.DataFrame) -> dict:
     }
 
 
+def build_talent(data_dir: Path) -> dict | None:
+    """Supply-side payload. Returns None when the candidate parser has not been run."""
+    cand_path = data_dir / "candidates.parquet"
+    if not cand_path.exists():
+        return None
+
+    candidates = pd.read_parquet(cand_path)
+    openings = pd.read_parquet(data_dir / "openings.parquet")
+    skills = pd.read_parquet(data_dir / "skill_market.parquet")
+    report = json.loads((data_dir / "candidate_report.json").read_text(encoding="utf-8"))
+
+    def counts(col, df=candidates, n=24):
+        return [[str(k), int(v)] for k, v in df[col].value_counts().head(n).items()]
+
+    skill_vocab, skill_idx = _list_dictionary(candidates["skills"])
+
+    cand_cols = ["candidate_id", "role", "role_family", "seniority", "years_experience",
+                 "industry", "education", "skills", "qualified_for_openings"]
+    cand_rows = [
+        [r.candidate_id, r.role, r.role_family, r.seniority, int(r.years_experience),
+         r.industry, r.education, sk, int(r.qualified_for_openings)]
+        for r, sk in zip(candidates.itertuples(), skill_idx)
+    ]
+
+    skill_cols = ["skill", "skill_family", "supply", "supply_share", "demand_must",
+                  "demand_nice", "demand_weighted", "demand_share", "tension"]
+    skill_rows = [
+        [r.skill, r.skill_family, int(r.supply), float(r.supply_share), int(r.demand_must),
+         int(r.demand_nice), float(r.demand_weighted), float(r.demand_share), float(r.tension)]
+        for r in skills.itertuples()
+    ]
+
+    top_supply = skills.nlargest(14, "supply")
+    return {
+        "meta": {
+            "candidates": int(len(candidates)),
+            "openings": int(len(openings)),
+            "skill_vocabulary": int(len(skills)),
+            "tech_candidates": int(candidates["is_tech_role"].sum()),
+            "mean_pool": float(openings["qualified_pool"].mean()),
+            "mean_skills": float(candidates["skill_count"].mean()),
+            "bridge_pct": report["bridge_to_german_data"]["overlap_pct"],
+            "bridge_coverage": report["bridge_to_german_data"]["german_it_coverage_pct"],
+            "bridge_shared": report["bridge_to_german_data"]["overlapping"],
+            "bridge_missing": report["bridge_to_german_data"]["missing_from_candidates"],
+        },
+        "charts": {
+            "role_family": counts("role_family"),
+            "seniority": counts("seniority"),
+            "experience": sorted(counts("experience_band"), key=lambda r: r[0]),
+            "industry": counts("industry"),
+            "education": counts("education"),
+            "skill_family": counts("primary_skill_family"),
+            "supply_demand": [
+                [r.skill, float(r.supply_share), float(r.demand_share), float(r.tension)]
+                for r in top_supply.itertuples()
+            ],
+            "tension_top": [[r.skill, float(r.tension)] for r in skills.head(10).itertuples()],
+            "tension_bottom": [[r.skill, float(r.tension)]
+                               for r in skills.tail(10).iloc[::-1].itertuples()],
+            "role_demand": [[str(k), int(v)] for k, v in
+                            openings["title"].value_counts().head(14).items()],
+        },
+        "dicts": {"skills": skill_vocab},
+        "candidates": {"cols": cand_cols, "rows": cand_rows},
+        "skills": {"cols": skill_cols, "rows": skill_rows},
+        "quality": report["ground_truth_audit"],
+        "options": {
+            "roles": sorted(candidates["role"].unique().tolist()),
+            "seniority": sorted(candidates["seniority"].unique().tolist()),
+            "industries": sorted(candidates["industry"].unique().tolist()),
+            "families": sorted(candidates["role_family"].unique().tolist()),
+        },
+    }
+
+
 def build_payload(postings: pd.DataFrame, companies: pd.DataFrame, report: dict, scope: str) -> dict:
     flag, scope_label = SCOPES[scope]
     subset = postings if flag is None else postings[postings[flag]]
@@ -193,6 +269,7 @@ def build_payload(postings: pd.DataFrame, companies: pd.DataFrame, report: dict,
             "technology": report["technology"],
             "seniority": report["seniority"],
         },
+        "talent": None,  # filled by main() when the candidate parser has been run
         "options": {
             "classes": sorted(companies["company_class"].unique().tolist()),
             "seniority": [s for s in ref.SENIORITY_ORDER if s in set(sen_vocab)],
@@ -214,6 +291,63 @@ def _opts(values, placeholder: str) -> str:
 
 def _kv(d: dict, fmt=lambda v: f"{v:,}" if isinstance(v, int) else v) -> str:
     return "".join(f"<tr><td>{k}</td><td>{fmt(v)}</td></tr>" for k, v in d.items())
+
+
+def _talent_replacements(payload: dict) -> dict:
+    """Placeholder values for the two supply-side screens.
+
+    When the candidate parser has not been run the screens are removed outright
+    rather than rendered empty -- a nav tab leading to a blank page is worse than
+    no tab at all.
+    """
+    t = payload.get("talent")
+    if not t:
+        return {}
+    tm, to = t["meta"], t["options"]
+    families = sorted({r[1] for r in t["skills"]["rows"]})
+    gt = t["quality"]
+    return {
+        "__T_CAND__": f"{tm['candidates']:,}",
+        "__T_TECH__": f"{tm['tech_candidates']:,}",
+        "__T_OPEN__": f"{tm['openings']:,}",
+        "__T_SKILLS__": f"{tm['skill_vocabulary']}",
+        "__T_MEANSK__": f"{tm['mean_skills']:.1f}",
+        "__T_POOL__": f"{tm['mean_pool']:,.0f}",
+        "__BRIDGE_PCT__": f"{tm['bridge_pct']}",
+        "__BRIDGE_COV__": f"{tm['bridge_coverage']}",
+        "__OPT_SKFAM__": _opts(families, "All skill families"),
+        "__OPT_CAROLE__": _opts(to["roles"], "All roles"),
+        "__OPT_CASEN__": _opts(to["seniority"], "Any seniority"),
+        "__OPT_CAIND__": _opts(to["industries"], "All industries"),
+        "__Q_GROUNDTRUTH__": _kv({
+            "Labelled pairs": gt["labelled_pairs"],
+            "Labels per opening": f"{gt['labels_per_opening']['mean']:.0f} (fixed)",
+            "Satisfy the documented rule": f"{gt['satisfy_documented_rule'] * 100:.1f}%",
+            "Mean qualified pool": f"{gt['mean_qualified_pool']:,.0f}",
+            "Share of pool that is labelled": f"{gt['labelled_share_of_pool'] * 100:.1f}%",
+            "Labels matching the opening's seniority": f"{gt['same_seniority'] * 100:.1f}% (random ~33%)",
+            "Labels matching the opening's role": f"{gt['same_role'] * 100:.1f}% (random ~4%)",
+        }, fmt=lambda v: f"{v:,}" if isinstance(v, int) else v),
+    }
+
+
+def _strip_talent_screens(html: str) -> str:
+    """Remove the supply-side tabs and sections when there is no candidate data."""
+    for tab in ("talent", "candidates"):
+        html = html.replace(
+            f'    <button data-s="{tab}" aria-selected="false">'
+            f'{"Talent" if tab == "talent" else "Candidates"}</button>\n', "")
+        start = html.find(f'<section class="screen" id="{tab}">')
+        if start != -1:
+            end = html.find("</section>", start) + len("</section>")
+            html = html[:start] + html[end:]
+    # and the quality panel that describes it
+    start = html.find('    <div class="panel span2">\n      <p class="label">Candidate dataset</p>')
+    if start != -1:
+        end = html.find("</div>\n    <div class=\"panel wide\">", start)
+        if end != -1:
+            html = html[:start] + html[end + len("</div>\n"):]
+    return html
 
 
 def render(payload: dict) -> str:
@@ -277,8 +411,11 @@ def render(payload: dict) -> str:
         "__Q_REVIEW__": review_rows,
         "__Q_VARIANTS__": variants,
     }
+    replacements.update(_talent_replacements(payload))
     for key, value in replacements.items():
         html = html.replace(key, value)
+    if not payload.get("talent"):
+        html = _strip_talent_screens(html)
     return html
 
 
@@ -297,7 +434,7 @@ TEMPLATE = r"""<!doctype html>
   <div class="bar">
     <div class="brand">
       <span class="mark">OP<b>_</b>RADAR</span>
-      <span class="sub">German IT labour market</span>
+      <span class="sub"></span>
     </div>
     <div class="stamp">
       Snapshot <b>__SNAPSHOT__</b><br>Parsed __GENERATED__
@@ -307,6 +444,8 @@ TEMPLATE = r"""<!doctype html>
     <button data-s="overview" aria-selected="true">Overview</button>
     <button data-s="companies" aria-selected="false">Companies</button>
     <button data-s="postings" aria-selected="false">Postings</button>
+    <button data-s="talent" aria-selected="false">Talent</button>
+    <button data-s="candidates" aria-selected="false">Candidates</button>
     <button data-s="quality" aria-selected="false">Data quality</button>
   </nav>
 </header>
@@ -433,6 +572,107 @@ TEMPLATE = r"""<!doctype html>
   <div class="pager" id="po-pager"></div>
 </section>
 
+
+<!-- ================= TALENT ================= -->
+<section class="screen" id="talent">
+  <p class="label">Talent &middot; supply side</p>
+  <h2>Who is<br>available</h2>
+  <p class="lede">The other half of the market: 10,000 candidate profiles and 2,500 openings from a
+    synthetic benchmark dataset. Same treatment as the demand side &mdash; normalised, aggregated,
+    and honest about what it can and cannot tell you.</p>
+
+  <div class="note" style="margin:-16px 0 26px"><b>Two things to know before reading any of this.</b>
+    The dataset is <em>synthetic and LLM-generated</em>, so the near-uniform distributions below
+    measure the generator, not a labour market. And it <em>does not join to the German posting
+    data</em>: only __BRIDGE_PCT__% of its skill vocabulary has an equivalent in our German
+    extraction, covering __BRIDGE_COV__% of German IT postings. Use it to build and demo the
+    matcher, not to claim anything about Germany.</div>
+
+  <div class="kpis">
+    <div class="kpi"><p class="label">Candidates</p><p class="v num">__T_CAND__</p><p class="n">profiles parsed</p></div>
+    <div class="kpi"><p class="label">In tech roles</p><p class="v num">__T_TECH__</p><p class="n">engineering, data, technical</p></div>
+    <div class="kpi"><p class="label">Openings</p><p class="v num">__T_OPEN__</p><p class="n">synthetic demand side</p></div>
+    <div class="kpi"><p class="label">Skill vocabulary</p><p class="v num">__T_SKILLS__</p><p class="n">__T_MEANSK__ skills per candidate</p></div>
+    <div class="kpi hl"><p class="label">Qualified pool</p><p class="v num">__T_POOL__</p><p class="n">candidates meeting an average opening's must-haves</p></div>
+  </div>
+
+  <div class="grid">
+    <div class="panel wide">
+      <p class="label">The core question</p><h3>Skill supply vs demand</h3>
+      <p class="hint">Share of candidates holding each skill (dark) against share of openings asking
+        for it (yellow). Where yellow outruns dark, the market wants more than the bench carries.</p>
+      <div id="t-supplydemand"></div>
+    </div>
+    <div class="panel">
+      <p class="label">Scarcity</p><h3>Highest tension</h3>
+      <p class="hint">Demand share divided by supply share, normalised so the market average is 1.0.
+        The spread is narrow because the generator is close to uniform &mdash; on real data expect
+        a far wider range.</p>
+      <div id="t-tensiontop"></div>
+    </div>
+    <div class="panel">
+      <p class="label">Oversupply</p><h3>Lowest tension</h3>
+      <p class="hint">More bench than market. On a real bench these are the hardest people to place.</p>
+      <div id="t-tensionbot"></div>
+    </div>
+    <div class="panel">
+      <p class="label">Shape</p><h3>Role families</h3>
+      <p class="hint">Candidates by role family. Engineering and data are the tech-facing ones.</p>
+      <div id="t-rolefam"></div>
+    </div>
+    <div class="panel">
+      <p class="label">Demand</p><h3>Most requested roles</h3>
+      <p class="hint">Openings by title.</p>
+      <div id="t-roledemand"></div>
+    </div>
+    <div class="panel">
+      <p class="label">Level</p><h3>Seniority and experience</h3>
+      <p class="hint">Note the near-perfect thirds. That is the generator, not a talent pool.</p>
+      <div id="t-seniority"></div>
+      <div style="height:16px"></div>
+      <div id="t-experience"></div>
+    </div>
+    <div class="panel">
+      <p class="label">Background</p><h3>Industry and education</h3>
+      <p class="hint">Ten industries at roughly 10% each, five education levels at roughly 20% each.</p>
+      <div id="t-industry"></div>
+      <div style="height:16px"></div>
+      <div id="t-education"></div>
+    </div>
+    <div class="panel wide">
+      <p class="label">Skill market</p><h3>Every skill, supply against demand</h3>
+      <p class="hint">Sort any column. Tension above 1.0 means demand outruns supply.</p>
+      <div class="controls">
+        <input type="search" id="sk-q" placeholder="Search skill...">
+        <select id="sk-fam">__OPT_SKFAM__</select>
+        <span class="count" id="sk-count"></span>
+      </div>
+      <div class="tw" style="max-height:52vh"><table><thead id="sk-head"></thead><tbody id="sk-body"></tbody></table></div>
+      <div class="pager" id="sk-pager"></div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= CANDIDATES ================= -->
+<section class="screen" id="candidates">
+  <p class="label">Candidates</p>
+  <h2>The bench</h2>
+  <p class="lede">All __T_CAND__ parsed profiles. <em>Qualified for</em> counts how many of the
+    __T_OPEN__ openings each candidate meets the must-have threshold for &mdash; recomputed here,
+    not taken from the dataset's own labels.</p>
+
+  <div class="controls">
+    <input type="search" id="ca-q" placeholder="Search role, industry or skill...">
+    <select id="ca-role">__OPT_CAROLE__</select>
+    <select id="ca-sen">__OPT_CASEN__</select>
+    <select id="ca-ind">__OPT_CAIND__</select>
+    <label class="chk"><input type="checkbox" id="ca-tech"> Tech roles only</label>
+    <span class="count" id="ca-count"></span>
+  </div>
+  <div class="tw"><table><thead id="ca-head"></thead><tbody id="ca-body"></tbody></table></div>
+  <div class="pager" id="ca-pager"></div>
+</section>
+
 <!-- ================= QUALITY ================= -->
 <section class="screen" id="quality">
   <p class="label">Data quality</p>
@@ -473,6 +713,16 @@ TEMPLATE = r"""<!doctype html>
       <p class="hint">Worth spot-checking: these are the entities where resolution did the most work.</p>
       <table class="kv">__Q_VARIANTS__</table>
     </div>
+    <div class="panel span2">
+      <p class="label">Candidate dataset</p><h3>Its "ground truth" is not ground truth</h3>
+      <p class="hint">The benchmark ships 30 relevant candidates per opening. Recomputing the
+        rule it documents shows those 30 are an arbitrary slice of a far larger qualified set,
+        and that seniority is ignored completely.</p>
+      <table class="kv">__Q_GROUNDTRUTH__</table>
+      <div class="note" style="margin-top:14px"><b>Do not report retrieval precision against
+        these labels.</b> Unlabelled correct answers are everywhere, so an honest matcher will
+        look wrong.</div>
+    </div>
     <div class="panel wide">
       <p class="label">Known limits</p><h3>Read before quoting anything</h3>
       <ul class="lim">
@@ -489,6 +739,9 @@ TEMPLATE = r"""<!doctype html>
           toggle before comparing regions.</li>
         <li><b>Seniority is mostly unknown</b> and deliberately so — it is only filled where a title
           states it. Stratify on requirement level instead.</li>
+        <li><b>The candidate data is synthetic.</b> Near-uniform distributions, a 73-skill
+          vocabulary, and no overlap worth speaking of with German demand. It is a fixture for
+          building the matcher, not evidence about anyone's talent pool.</li>
         <li><b>This is a sample, not a census.</b> One source, one crawl window, and it under-represents
           hiring that runs through company career pages and LinkedIn.</li>
       </ul>
@@ -536,6 +789,13 @@ def main(argv: list[str] | None = None) -> int:
 
     print(f"  building payload (scope={args.scope})", file=sys.stderr)
     payload = build_payload(postings, companies, report, args.scope)
+    payload["talent"] = build_talent(args.data)
+    if payload["talent"]:
+        print(f"  + talent data: {payload['talent']['meta']['candidates']:,} candidates, "
+              f"{payload['talent']['meta']['skill_vocabulary']} skills", file=sys.stderr)
+    else:
+        print("  no candidates.parquet — talent screens omitted "
+              "(run `python -m opradar.candidates`)", file=sys.stderr)
 
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(render(payload), encoding="utf-8")
