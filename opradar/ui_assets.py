@@ -321,6 +321,7 @@ tr.open .exp::before{border-color:var(--accent)}
 #ra-body tr.open td:first-child{box-shadow:inset 3px 0 0 var(--accent)}
 #ra-body tr.open{background:var(--paper-2)}
 .tag.warn{background:#fff4d6;border-color:#e8c766;color:#6b5200}
+.tag.gone{background:#ffe9e4;border-color:#e8a08c;color:#7a2d16}
 td .z{color:var(--muted-2)}
 .evwhy{margin-bottom:14px}
 .evwhy ul{margin:6px 0 0;padding-left:18px;display:grid;gap:5px}
@@ -935,7 +936,9 @@ if (D.radar) {
       + tile('Open 6+ weeks at crawl', o45, o45 ? '' : 'zero')
       + tile('Senior or lead', sen, sen ? '' : 'zero')
       + tile('Typical age', rx('median_age')(r) + '<span class="sfx">days</span>')
-      + tile('Roles we could fill', cov + '<span class="sfx">of ' + tot + '</span>', 'acc')
+      + (tot === 0
+          ? tile('Roles we could fill', 'none', 'zero')
+          : tile('Roles we could fill', cov + '<span class="sfx">of ' + tot + '</span>', 'acc'))
       + tile('People we could place', rx('placeable')(r).toFixed(1), 'acc');
 
     const row = (cls, label, frac) =>
@@ -1344,6 +1347,13 @@ if (D.radar) {
             ? ' <span class="tag" title="Based on only a few job ads">thin evidence</span>' : '')
           + (rx('verified')(r)
             ? ' <span class="tag pub" title="Re-observed on the Bundesagentur board today: open roles, posting flow and agency flags all come from the source rather than from our inference">live-checked</span>' : '')
+          /* Every advertisement we hold for this company has since been taken
+             down, so there is no role here we could name or staff today. Say
+             so on the ROW: it is the single fact that decides whether the lead
+             is callable, and it must not be something you discover only after
+             opening the panel. */
+          + (rx('covered')(r) + rx('uncovered')(r) === 0
+            ? ' <span class="tag gone" title="Every job ad we hold for this company has since been delisted. The demand signals may still be strong, but we cannot name a role to pitch until this company is crawled again.">nothing to staff</span>' : '')
           + `<span class="csub">${esc(plain(r))}</span>`
           + `<span class="cchips">`
           + rx('techs')(r).slice(0, 3).map(t => `<span class="chip">${esc(t)}</span>`).join('')

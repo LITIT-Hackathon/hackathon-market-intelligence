@@ -393,14 +393,24 @@ def score(feats: pd.DataFrame, serviceability: pd.DataFrame,
     s["placeable_w"] = s["placeable_w"].fillna(0.0)
     s["atoms_total"] = s["atoms_total"].fillna(0)
 
-    # Both bench signals are computed over vacancies still live, so a company
-    # whose whole crawl has since been taken down has no evidence rather than
-    # bad news. Without this the delisting filter would punish companies for
-    # OUR observational gap -- exactly what the evidence weights exist to
-    # prevent. Full weight at min_it_postings live atoms.
-    atoms_ev = (s["atoms_total"].astype(float) / CONFIG["min_it_postings"]).clip(0, 1)
-    s["serviceability_e"] = atoms_ev
-    s["dealsize_e"] = atoms_ev
+    # Both bench signals are FULLY OBSERVED, always -- do not shrink them.
+    #
+    # They answer "how many of this company's roles could we staff today", and
+    # our data always answers that question. When every advertisement we hold
+    # has since been delisted the answer is 0. That is an observation, not a
+    # gap: a 404 from the board is the board telling us the role is gone.
+    #
+    # Weighting these by surviving atom count was a regression. It gave every
+    # company with nothing left to fill the pool-MEDIAN bench score for free,
+    # which ranked them above companies whose roles we can actually cover:
+    # [measured] 52 of the 65 companies with live roles scored below the free
+    # prior, and 6 companies with zero fillable roles sat in the top 20.
+    #
+    # Companies we never checked are still not punished -- `match.live_atoms`
+    # drops only CONFIRMED-dead vacancies and keeps unknown ones, so an
+    # unchecked company is measured exactly as it was before liveness existed.
+    s["serviceability_e"] = 1.0
+    s["dealsize_e"] = 1.0
 
     w = CONFIG["signal_weights"]
     floor = CONFIG["signals"]["log_floor"]
