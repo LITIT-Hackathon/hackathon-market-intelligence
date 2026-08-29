@@ -87,7 +87,9 @@ def v3_sensitivity(feats: pd.DataFrame, svc: pd.DataFrame, pool: pd.DataFrame,
             factors = 1 + rng.uniform(-cfg["perturbation"], cfg["perturbation"], len(base_w))
             CONFIG["signal_weights"] = {
                 name: base_w[name] * f for name, f in zip(base_w, factors)}
-            alt = scoring.score(feats, svc, pool)
+            # evidence=False: this check reads company_key and rank order
+            # only, and the citation/timeline payload is 97% of a score() call
+            alt = scoring.score(feats, svc, pool, evidence=False)
             overlaps.append(len(base & set(alt.head(k)["company_key"])))
     finally:
         CONFIG["signal_weights"] = base_w
@@ -124,7 +126,7 @@ def v4_jackknife(postings: pd.DataFrame, companies: pd.DataFrame,
         if feats.empty:
             continue
         svc = match.serviceability(pool, bench)
-        alt = scoring.score(feats, svc, pool)
+        alt = scoring.score(feats, svc, pool, evidence=False)
         alt_keys = set(alt["company_key"])
 
         overlaps.append(len(base & set(alt.head(k)["company_key"])))

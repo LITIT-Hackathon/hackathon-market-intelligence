@@ -310,6 +310,23 @@ def confidence(scored: pd.DataFrame) -> pd.DataFrame:
 # evidence
 # ---------------------------------------------------------------------------
 
+# The pool carries 58 columns; these two functions read seven of them. Grouping
+# the wide frame made every per-company `sort_values` reorder all 58 and every
+# `itertuples` build a 58-field row -- [measured] 3.4s of a 4.0s score() call
+# for 943 rows, against 0.10s of actual groupby overhead. Narrowing first is
+# semantically identical: sort_values derives its permutation from the key
+# column alone, so the surviving columns cannot change the ordering.
+_EVIDENCE_COLS = ["company_key", "posting_age_days", "title_clean", "source_url",
+                  "role_family", "seniority_derived", "tech_categories"]
+_TIMELINE_COLS = ["company_key", "posting_age_days", "title_clean", "source_url",
+                  "role_family", "alive", "posted_date", "gone_days"]
+
+
+def _narrow(df: pd.DataFrame, cols: list[str]) -> pd.DataFrame:
+    """Keep `cols`, tolerating the optional ones (alive/gone_days) being absent."""
+    return df[[c for c in cols if c in df.columns]]
+
+
 def _evidence(grp: pd.DataFrame, max_n: int) -> str:
     """The postings behind the score, freshest first.
 
@@ -335,6 +352,24 @@ def _evidence(grp: pd.DataFrame, max_n: int) -> str:
     return json.dumps(out, ensure_ascii=False)
 
 
+def _timeline_prep(pool: pd.DataFrame) -> pd.DataFrame:
+    """Add `gone_days` to the whole pool at once, for `_timeline`.
+
+    This used to run inside the per-company function. pandas' datetime parsing
+    carries a large fixed cost per call, so paying it once per company -- on
+    top of copying every group -- cost [measured] 2.3s of a 4.0s score() call
+    for 943 rows. Vectorised over the pool it is a few milliseconds, and
+    snapshot_date is a single crawl timestamp so the arithmetic is identical.
+    """
+    g = pool.copy()
+    g["gone_days"] = pd.NA
+    if {"checked_at", "snapshot_date", "alive"} <= set(g.columns) and len(g):
+        chk = pd.to_datetime(g["checked_at"], utc=True, errors="coerce").dt.tz_localize(None)
+        dead = (g["alive"].astype("boolean") == False).fillna(False)  # noqa: E712
+        g["gone_days"] = (g["snapshot_date"] - chk).dt.days.where(dead)
+    return g
+
+
 def _timeline(grp: pd.DataFrame) -> str:
     """Every eligible vacancy for one company, oldest first -- the series behind
     the open-roles timeline in the UI.
@@ -354,16 +389,8 @@ def _timeline(grp: pd.DataFrame) -> str:
     Unlike _evidence this keeps delisted vacancies -- in a timeline a role that
     went up and later came down is the point, not a broken citation.
     """
-    g = grp.copy()
-    g["gone_days"] = pd.NA
-    if "checked_at" in g.columns and "snapshot_date" in g.columns and len(g):
-        snap = g["snapshot_date"].iloc[0]
-        chk = pd.to_datetime(g["checked_at"], utc=True, errors="coerce").dt.tz_localize(None)
-        dead = (g["alive"].astype("boolean") == False).fillna(False)  # noqa: E712
-        g["gone_days"] = (snap - chk).dt.days.where(dead)
-
     out = []
-    for r in g.sort_values("posting_age_days", ascending=False).itertuples():
+    for r in grp.sort_values("posting_age_days", ascending=False).itertuples():
         alive = getattr(r, "alive", None)
         gone = getattr(r, "gone_days", None)
         posted = getattr(r, "posted_date", None)
@@ -384,8 +411,16 @@ def _timeline(grp: pd.DataFrame) -> str:
 # ---------------------------------------------------------------------------
 
 def score(feats: pd.DataFrame, serviceability: pd.DataFrame,
-          eligible_pool: pd.DataFrame) -> pd.DataFrame:
-    """Signals -> effective signals -> weighted geometric mean -> percentile."""
+          eligible_pool: pd.DataFrame, *, evidence: bool = True) -> pd.DataFrame:
+    """Signals -> effective signals -> weighted geometric mean -> percentile.
+
+    `evidence=False` skips the citation and timeline payloads. They are pure
+    presentation -- the UI needs them, the ranking does not -- and they cost
+    [measured] 3.9s of a 4.0s call, against 0.12s for the entire scoring model.
+    Validation re-scores this pool 15 times (V3 perturbs weights 12x, V4
+    jackknifes 3x) and discards those payloads every time, which is where 59
+    of the run's 74 seconds went.
+    """
     s = signals(feats)
     s = s.merge(serviceability, on="company_key", how="left")
     s["serviceability"] = s["serviceability"].fillna(0.0)
@@ -444,11 +479,14 @@ def score(feats: pd.DataFrame, serviceability: pd.DataFrame,
     # false precision -- there are no labels to calibrate against.
     s["opportunity"] = (100 * _pct(s["pressure"])).round(1)
 
-    evidence = eligible_pool.groupby("company_key").apply(
-        _evidence, max_n=CONFIG["evidence"]["max_postings"], include_groups=False)
-    s["evidence"] = s["company_key"].map(evidence)
-    tl = eligible_pool.groupby("company_key").apply(_timeline, include_groups=False)
-    s["timeline"] = s["company_key"].map(tl)
+    if evidence:
+        cites = (_narrow(eligible_pool, _EVIDENCE_COLS).groupby("company_key")
+                 .apply(_evidence, max_n=CONFIG["evidence"]["max_postings"],
+                        include_groups=False))
+        s["evidence"] = s["company_key"].map(cites)
+        tl = (_narrow(_timeline_prep(eligible_pool), _TIMELINE_COLS)
+              .groupby("company_key").apply(_timeline, include_groups=False))
+        s["timeline"] = s["company_key"].map(tl)
     s["config_hash"] = config_hash()
 
     s = s.sort_values(["opportunity", "confidence"], ascending=False).reset_index(drop=True)

@@ -46,7 +46,7 @@ def _load_optional(path: Path):
     return pd.read_parquet(path) if path.exists() else None
 
 
-def run(data_dir: Path, root: Path) -> dict:
+def run(data_dir: Path, root: Path, *, validate: bool = True) -> dict:
     started = time.time()
 
     _log("[1/7] loading parser output")
@@ -102,15 +102,22 @@ def run(data_dir: Path, root: Path) -> dict:
     _log(f"      {len(cells)} demand cells, {len(bench)} consultants, "
          f"{int(supply['thin_cell'].sum())} thin bench cells")
 
-    _log("[7/7] validation")
-    checks = validate_mod.run_all(ranked, feats, svc, pool, value, cells,
-                                  postings, companies, segments, ba, bench)
-    c = checks["companies"]
-    _log(f"      V1 rho={c['v1_divergence']['spearman_vs_it_postings']} "
-         f"| V2 {c['v2_adversarial']['verdict']} "
-         f"| V3 {c['v3_sensitivity']['min_overlap']}/{c['v3_sensitivity']['top_k']} "
-         f"| V4 {c.get('v4_jackknife', {}).get('min_overlap', '-')}/"
-         f"{c.get('v4_jackknife', {}).get('top_k', '-')}")
+    if validate:
+        _log("[7/7] validation")
+        checks = validate_mod.run_all(ranked, feats, svc, pool, value, cells,
+                                      postings, companies, segments, ba, bench)
+        c = checks["companies"]
+        _log(f"      V1 rho={c['v1_divergence']['spearman_vs_it_postings']} "
+             f"| V2 {c['v2_adversarial']['verdict']} "
+             f"| V3 {c['v3_sensitivity']['min_overlap']}/{c['v3_sensitivity']['top_k']} "
+             f"| V4 {c.get('v4_jackknife', {}).get('min_overlap', '-')}/"
+             f"{c.get('v4_jackknife', {}).get('top_k', '-')}")
+    else:
+        # V4 alone re-derives features and re-matches the bench three times.
+        # Worth every second before anyone trusts a number; pure overhead while
+        # iterating on the model itself, which is what --quick is for.
+        checks = {"companies": {}, "people": {}}
+        _log("[7/7] validation SKIPPED (--quick) -- rankings are unverified")
 
     # ---- write ----
     def _jsonify(df, col):
@@ -129,8 +136,11 @@ def run(data_dir: Path, root: Path) -> dict:
     _jsonify(supply, "tech_tags").to_parquet(data_dir / "supply_index.parquet", index=False)
     _jsonify(bench, "tech_tags").assign(languages=bench["languages"].map(json.dumps)) \
         .to_parquet(data_dir / "bench.parquet", index=False)
-    (data_dir / "validation.json").write_text(
-        json.dumps(checks, indent=2, default=str), encoding="utf-8")
+    if validate:
+        (data_dir / "validation.json").write_text(
+            json.dumps(checks, indent=2, default=str), encoding="utf-8")
+    else:
+        _log("      kept the previous validation.json rather than blanking it")
     (data_dir / "score_report.md").write_text(
         report(ranked, plan, value, checks, segments), encoding="utf-8")
 
@@ -142,7 +152,7 @@ def run(data_dir: Path, root: Path) -> dict:
 
 def report(ranked: pd.DataFrame, plan: pd.DataFrame, value: pd.DataFrame,
            checks: dict, segments: pd.DataFrame) -> str:
-    c = checks["companies"]
+    c = checks.get("companies") or {}
     out = [
         "# Score report",
         "",
@@ -204,13 +214,18 @@ def report(ranked: pd.DataFrame, plan: pd.DataFrame, value: pd.DataFrame,
                    f"| {r.uniqueness:.2f} | {r.atoms_matched} |")
 
     out += ["", "## Validation", ""]
-    for name, res in c.items():
-        out.append(f"- **{name}**: {res.get('verdict', '')} "
-                   f"`{json.dumps({k: v for k, v in res.items() if k not in ('note',)})[:220]}`")
-    p = checks["people"]
-    out.append(f"- **v7_people**: {p['verdict']} -- value vs skill count "
-               f"rho={p['value_vs_skill_count_spearman']}, vs uniqueness "
-               f"rho={p['value_vs_uniqueness_spearman']}")
+    if not c:
+        out.append("**Not run** -- this build used `--quick`. Nothing here has been "
+                   "checked for weight sensitivity or single-vacancy fragility; "
+                   "re-run `python -m opradar.score` before trusting it.")
+    else:
+        for name, res in c.items():
+            out.append(f"- **{name}**: {res.get('verdict', '')} "
+                       f"`{json.dumps({k: v for k, v in res.items() if k not in ('note',)})[:220]}`")
+        p = checks["people"]
+        out.append(f"- **v7_people**: {p['verdict']} -- value vs skill count "
+                   f"rho={p['value_vs_skill_count_spearman']}, vs uniqueness "
+                   f"rho={p['value_vs_uniqueness_spearman']}")
     out.append("")
     return "\n".join(out)
 
@@ -220,11 +235,14 @@ def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="opradar.score")
     p.add_argument("--data", type=Path, default=root / "data" / "processed")
     p.add_argument("--root", type=Path, default=root)
+    p.add_argument("--quick", action="store_true",
+                   help="skip V1-V7 for a fast iteration loop "
+                        "(~5s instead of ~13s); leaves validation.json untouched")
     args = p.parse_args(argv)
     if not (args.data / "postings.parquet").exists():
         print("ERROR: run `python -m opradar` first.", file=sys.stderr)
         return 1
-    run(args.data, args.root)
+    run(args.data, args.root, validate=not args.quick)
     return 0
 
 
