@@ -315,25 +315,35 @@ tr.evrow>td{background:var(--paper-2);padding:14px 16px 16px}
 .tlc a{cursor:pointer}
 .tlc a:hover text{fill:var(--accent)}
 .tlhit{cursor:crosshair}
+/* Leader lines need more contrast on a dark ground than on a light one --
+   at #383C39 they read as gridlines rather than as connectors. */
+.tll{stroke:#585D59;stroke-width:1;transition:stroke .14s,stroke-width .14s}
+.tlb .cbg{fill:#212422;stroke:#2E3230;transition:fill .14s,stroke .14s}
+.tlm .halo{transition:r .14s,opacity .14s}
+/* the label, its leader and its dot light up together, so which ad caused
+   which step is never in doubt */
+.tll.on{stroke:var(--accent);stroke-width:1.5}
+.tlb.on .cbg{fill:#31331F;stroke:#5C5B22}
+.tlm.on .halo{r:13px;opacity:.26}
 .tlmeta{font:400 11.5px/1.5 var(--sans);color:var(--muted-2);margin:9px 2px 0}
 .tlmeta b{color:var(--paper);font-weight:600}
 /* the hover read-out: which roles were open at the point under the cursor */
 .tltip{position:absolute;z-index:6;left:0;top:0;pointer-events:none;opacity:0;
-  transition:opacity .1s;width:296px;background:var(--paper);border:1px solid var(--line);
-  border-radius:var(--r-sm);box-shadow:0 12px 34px rgba(0,0,0,.4);padding:10px 12px 11px}
+  transition:opacity .1s;width:268px;background:var(--paper);border:1px solid var(--line);
+  border-radius:var(--r-sm);box-shadow:0 12px 34px rgba(0,0,0,.4);padding:9px 11px 10px}
 .tltip.on{opacity:1}
 .tltip.pin{pointer-events:auto}
-.tth{font:600 13px var(--sans);color:var(--ink);padding-bottom:7px;
+.tth{font:600 12.5px var(--sans);color:var(--ink);padding-bottom:6px;
   display:flex;justify-content:space-between;align-items:baseline;gap:10px}
-.tth span{font:400 10.5px var(--sans);color:var(--muted);white-space:nowrap}
-.ttr{display:grid;grid-template-columns:9px 1fr;gap:0 9px;padding:6px 0;
+.tth span{font:400 10px var(--sans);color:var(--muted);white-space:nowrap}
+.ttr{display:grid;grid-template-columns:9px 1fr;gap:0 9px;padding:5px 0;
   border-top:1px solid var(--line);text-decoration:none}
 .ttr i{width:8px;height:8px;border-radius:50%;background:var(--accent);
-  border:1px solid var(--ink);margin-top:4px}
+  border:1px solid var(--ink);margin-top:3px}
 .ttr.dead i{background:var(--paper);border-color:var(--line-2)}
 .ttr.unk i{background:var(--line)}
-.ttt{font:500 12px/1.35 var(--sans);color:var(--ink)}
-.ttm{grid-column:2;font:400 10.5px var(--sans);color:var(--muted);margin-top:2px}
+.ttt{font:500 11.5px/1.3 var(--sans);color:var(--ink)}
+.ttm{grid-column:2;font:400 10px var(--sans);color:var(--muted);margin-top:1px}
 .ttr.dead .ttt{color:var(--muted)}
 .tltip.pin .ttr:hover .ttt{color:var(--link);text-decoration:underline}
 .ttmore{font:400 10.5px var(--sans);color:var(--muted);padding-top:7px;border-top:1px solid var(--line)}
@@ -948,43 +958,60 @@ if (D.radar) {
         + `opacity=".5" stroke-linejoin="round"/>` : '';
 
     /* ---- markers: a dot per step up, a ring per verified take-down ---- */
+    /* a bare 4.5px dot disappears against the line it sits on: each marker is
+       a solid core inside a translucent halo that grows when its step is
+       hovered, so the point of change is unmistakable */
     let marks = '';
     labels.forEach(lb => {
-      marks += `<circle cx="${f(lb.x)}" cy="${f(Y(after.get(lb.d)))}" r="4.5" `
-        + `fill="${lb.dead ? '#1A1C1B' : '#FFEB00'}" stroke="${lb.dead ? '#565A57' : '#1A1C1B'}" `
-        + `stroke-width="2"/>`;
+      const cy = Y(after.get(lb.d));
+      marks += `<g class="tlm" data-day="${lb.d}">`
+        + `<circle class="halo" cx="${f(lb.x)}" cy="${f(cy)}" r="9.5" `
+        + `fill="${lb.dead ? '#8D918E' : '#FFEB00'}" opacity="${lb.dead ? '.1' : '.16'}"/>`
+        + `<circle cx="${f(lb.x)}" cy="${f(cy)}" r="5.5" fill="${lb.dead ? '#1A1C1B' : '#FFEB00'}" `
+        + `stroke="${lb.dead ? '#8D918E' : '#1A1C1B'}" stroke-width="2.5"/></g>`;
     });
     days.filter(d => evm.get(d).down.length).forEach(d => {
       const n = evm.get(d).down.length, x = X(d), y = Y(after.get(d));
-      marks += `<circle cx="${f(x)}" cy="${f(y)}" r="4.5" fill="#1A1C1B" stroke="#8D918E" stroke-width="2"/>`
-        + `<text x="${f(x - 9)}" y="${f(y + 4)}" text-anchor="end" font-size="11.5" font-weight="600" `
-        + `fill="#8D918E">\u2212${n} taken down</text>`;
+      marks += `<g class="tlm" data-day="${d}">`
+        + `<circle class="halo" cx="${f(x)}" cy="${f(y)}" r="9.5" fill="#8D918E" opacity=".1"/>`
+        + `<circle cx="${f(x)}" cy="${f(y)}" r="5.5" fill="#1A1C1B" stroke="#A8ADA9" stroke-width="2.5"/>`
+        + `<text x="${f(x - 12)}" y="${f(y + 4)}" text-anchor="end" font-size="11.5" font-weight="600" `
+        + `fill="#A8ADA9">\u2212${n} taken down</text></g>`;
     });
 
     /* ---- labels: leaders first, then chips, so nothing draws over a title ---- */
     const vis = labels.filter(lb => !lb.hide);
     let lab = vis.map(lb => {
       const top = laneTop(lb.lane), h = lb.lines.length * LN + 9;
-      return `<line x1="${f(lb.lx)}" y1="${f(top + h)}" x2="${f(lb.x)}" `
-        + `y2="${f(Y(after.get(lb.d)) - 7)}" stroke="#383C39"/>`;
+      return `<line class="tll" data-day="${lb.d}" x1="${f(lb.lx)}" y1="${f(top + h)}" `
+        + `x2="${f(lb.x)}" y2="${f(Y(after.get(lb.d)) - 10)}"/>`;
     }).join('');
     lab += vis.map(lb => {
       const top = laneTop(lb.lane), h = lb.lines.length * LN + 9, x0 = lb.lx - lb.w / 2;
       const text = lb.lines.map((t, j) =>
         `<text x="${f(x0 + 11)}" y="${f(top + 6 + LN * (j + 1) - 3)}" font-size="12" `
-        + `font-weight="${j ? 400 : 600}" fill="${lb.dead ? '#9AA09C' : '#F5F5F2'}">${esc(t)}</text>`).join('');
-      return `<a href="${esc(lb.ups[0].url)}" target="_blank" rel="noopener">`
+        + `font-weight="${j ? 400 : 600}" fill="${lb.dead ? '#9AA09C' : '#F2F2EE'}">${esc(t)}</text>`).join('');
+      return `<g class="tlb" data-day="${lb.d}">`
+        + `<a href="${esc(lb.ups[0].url)}" target="_blank" rel="noopener">`
         + `<title>${esc(lb.ups.map(a => a.title).join('\n'))}</title>`
-        + `<rect x="${f(x0)}" y="${f(top)}" width="${f(lb.w)}" height="${f(h)}" rx="5" fill="#212422"/>`
+        + `<rect class="cbg" x="${f(x0)}" y="${f(top)}" width="${f(lb.w)}" height="${f(h)}" rx="5"/>`
         + `<rect x="${f(x0)}" y="${f(top)}" width="2.5" height="${f(h)}" rx="1.2" `
-        + `fill="${lb.dead ? '#565A57' : '#FFEB00'}"/>${text}</a>`;
+        + `fill="${lb.dead ? '#8D918E' : '#FFEB00'}"/>${text}</a></g>`;
     }).join('');
 
     /* ---- hover layer ---- */
+    /* a full crosshair: the vertical line finds the date, the horizontal one
+       runs back to the axis and carries the count, so the number can be read
+       off the chart without going to the tooltip at all */
     const hov = `<g class="tlhi" style="display:none">`
       + `<rect class="tlband" x="0" y="${f(T)}" width="0" height="${PH}" fill="#FFEB00" opacity=".07"/>`
       + `<line class="tlcur" x1="0" x2="0" y1="${f(T - 6)}" y2="${f(T + PH)}" stroke="#FFEB00" opacity=".5"/>`
-      + `<circle class="tlcd" cx="0" cy="0" r="5.5" fill="#FFEB00" stroke="#1A1C1B" stroke-width="2"/></g>`
+      + `<line class="tlcurh" x1="${f(L)}" x2="0" y1="0" y2="0" stroke="#FFEB00" opacity=".3" `
+      + `stroke-dasharray="3 4"/>`
+      + `<circle class="tlcd" cx="0" cy="0" r="6" fill="#FFEB00" stroke="#1A1C1B" stroke-width="2.5"/>`
+      + `<g class="tlvp"><rect rx="4" x="0" y="0" width="0" height="18" fill="#FFEB00"/>`
+      + `<text x="0" y="0" text-anchor="middle" font-size="11.5" font-weight="700" fill="#1A1C1B"></text>`
+      + `</g></g>`
       + `<rect class="tlhit" x="${L}" y="${f(T - 6)}" width="${f(pw)}" height="${f(PH + 6)}" fill="transparent"/>`;
 
     const svg = `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" `
@@ -993,8 +1020,10 @@ if (D.radar) {
 
     TL.store[id] = {
       W: W,
+      axisX: L,
       periods: periods.map(q => ({
         x0: q.x0, x1: q.x1, y: q.y, n: q.n,
+        day: q.a0 >= lo ? null : q.a0,     /* the posting day that opened it */
         label: q.tail ? 'as of ' + dstr(q.a0)
              : (q.a0 >= lo ? 'before ' + dstr(q.a1) : dstr(q.a0) + ' \u2013 ' + dstr(q.a1)),
         open: q.open.map(a => ({title: a.title, url: a.url, live: a.live, family: a.family,
@@ -1030,7 +1059,18 @@ if (D.radar) {
       const tip = box.querySelector('.tltip'), body = tip.querySelector('.ttbody');
       const hl = svg.querySelector('.tlhi'), band = svg.querySelector('.tlband');
       const cur = svg.querySelector('.tlcur'), cd = svg.querySelector('.tlcd');
-      let pinned = false, shown = null;
+      const curh = svg.querySelector('.tlcurh');
+      const vp = svg.querySelector('.tlvp'), vpr = vp.querySelector('rect'), vpt = vp.querySelector('text');
+      let pinned = false, shown = null, litDay = null;
+
+      /* light the label / leader / dot belonging to the hovered step */
+      const light = day => {
+        if (day === litDay) return;
+        svg.querySelectorAll('.on').forEach(el => el.classList.remove('on'));
+        if (day !== null && day !== undefined)
+          svg.querySelectorAll('[data-day="' + day + '"]').forEach(el => el.classList.add('on'));
+        litDay = day;
+      };
 
       const rowOf = a => `<a class="ttr${a.live === false ? ' dead' : (a.live === true ? '' : ' unk')}" `
         + `href="${esc(a.url)}" target="_blank" rel="noopener"><i></i>`
@@ -1038,27 +1078,43 @@ if (D.radar) {
         + ` &middot; posted ${esc(a.when)}${a.live === false ? ' &middot; since taken down' : ''}`
         + `</span></a>`;
 
-      const hide = () => { hl.style.display = 'none'; tip.classList.remove('on'); shown = null; };
+      const hide = () => {
+        hl.style.display = 'none'; tip.classList.remove('on'); shown = null; light(null);
+      };
 
       const paint = (q, cx, cy, vx) => {
         band.setAttribute('x', q.x0);
         band.setAttribute('width', Math.max(0, q.x1 - q.x0));
         cur.setAttribute('x1', vx); cur.setAttribute('x2', vx);
         cd.setAttribute('cx', vx); cd.setAttribute('cy', q.y);
+        curh.setAttribute('x2', vx);
+        curh.setAttribute('y1', q.y); curh.setAttribute('y2', q.y);
+        const vw = 17 + String(q.n).length * 7;
+        vpr.setAttribute('x', st.axisX - 7 - vw); vpr.setAttribute('y', q.y - 9);
+        vpr.setAttribute('width', vw);
+        vpt.setAttribute('x', st.axisX - 7 - vw / 2); vpt.setAttribute('y', q.y + 4);
+        vpt.textContent = q.n;
         hl.style.display = '';
+        light(q.day);
         if (shown !== q) {
           body.innerHTML = `<div class="tth"><b>${q.n}</b> ${q.n === 1 ? 'role open' : 'roles open'}`
             + `<span>${esc(q.label)}</span></div>`
             + (q.open.length
-                ? q.open.slice(0, 7).map(rowOf).join('')
-                  + (q.open.length > 7
-                      ? `<div class="ttmore">+${q.open.length - 7} more open at the time</div>` : '')
+                ? q.open.slice(0, 5).map(rowOf).join('')
+                  + (q.open.length > 5
+                      ? `<div class="ttmore">+${q.open.length - 5} more open at the time</div>` : '')
                 : `<div class="ttmore">Nothing open yet.</div>`);
           shown = q;
         }
         tip.classList.add('on');
-        tip.style.left = Math.max(6, Math.min(cx + 18, box.clientWidth - tip.offsetWidth - 6)) + 'px';
-        tip.style.top = Math.max(6, Math.min(cy - 14, box.clientHeight - tip.offsetHeight - 6)) + 'px';
+        /* Flip to the other side of the cursor rather than clamping: clamping
+           parks the panel on top of the half of the chart being pointed at. */
+        const tw = tip.offsetWidth, th = tip.offsetHeight;
+        const bw = box.clientWidth, bh = box.clientHeight, PAD = 8, OFF = 18;
+        const left = cx + OFF + tw <= bw - PAD ? cx + OFF
+                   : (cx - OFF - tw >= PAD ? cx - OFF - tw : Math.max(PAD, bw - tw - PAD));
+        tip.style.left = left + 'px';
+        tip.style.top = Math.max(PAD, Math.min(cy - th / 2, bh - th - PAD)) + 'px';
       };
 
       svg.addEventListener('mousemove', e => {
