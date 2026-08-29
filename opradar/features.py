@@ -57,7 +57,7 @@ def _fold(text: str) -> str:
 
 
 def eligible_postings(postings: pd.DataFrame, segments: pd.DataFrame) -> pd.DataFrame:
-    """IT vacancies at companies we are willing to rank, with atom fields attached.
+    """Recent IT vacancies at companies we are willing to rank, with atom fields.
 
     Training roles are excluded because a company hiring apprentices is building
     capability in house -- the opposite of an outsourcing trigger. `seniority`
@@ -70,6 +70,9 @@ def eligible_postings(postings: pd.DataFrame, segments: pd.DataFrame) -> pd.Data
         postings["company_key"].isin(prospects)
         & postings["is_it_role"]
         & ~postings["is_training_role"]
+        # recency cap: see CONFIG["age"]. An advertisement older than this is
+        # not demand anyone can sell into, whatever the crawl still lists.
+        & (postings["posting_age_days"] <= CONFIG["age"]["hard_cap_days"])
     )
     elig = postings[mask].copy()
     folded = elig["title_clean"].fillna("").map(_fold)

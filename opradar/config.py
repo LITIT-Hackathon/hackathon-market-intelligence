@@ -19,6 +19,24 @@ import hashlib
 import json
 
 CONFIG: dict = {
+    # ---- recency ----------------------------------------------------------
+    # A vacancy stops being a sales lead long before it stops being a row in
+    # the crawl. [measured] the eligible pool carries advertisements up to
+    # 1,895 days old; 10% of it is past 240 days and 5% past a year. Those are
+    # not open roles, they are abandoned listings, and counting them as demand
+    # is what put year-old postings at the top of the board.
+    #
+    # The cap is applied at the pool, not as a per-signal discount, so every
+    # count, rate, citation and chart sees the same window and none of them can
+    # disagree about what "open" means. 90 days because a quarter is the point
+    # past which a posting stops being something a salesperson can open a call
+    # with. [stated]
+    #
+    # This does NOT weaken S1. `now_aged_open` is the live board's own
+    # observation of roles still unfilled today -- a different claim from "this
+    # crawl row is old", and unaffected by the cap.
+    "age": {"hard_cap_days": 90},
+
     # ---- eligibility ------------------------------------------------------
     # Companies below this are not ranked: three vacancies is the point at
     # which "concentrated on one stack" stops being an artefact of having only
@@ -159,7 +177,12 @@ CONFIG: dict = {
         # mirror of S1: the bench is graded hardest on the demand the client
         # has already failed to satisfy, because that is the demand actually
         # available to buy. [stated]
-        "atom_weight_gt90": 1.0, "atom_weight_gt45": 0.8, "atom_weight_fresh": 0.5,
+        # Fresh-first: the bench is graded hardest on what is being asked for
+        # NOW. A role advertised this month is the one we could actually be
+        # placed into; one that has sat unanswered for a quarter is evidence
+        # about the past. (S1 already carries "they cannot fill things" from
+        # the live board, so the match layer does not need to say it twice.)
+        "atom_weight_gt90": 0.3, "atom_weight_gt45": 0.6, "atom_weight_fresh": 1.0,
     },
 
     # ---- Algorithm B: capability portfolio + people ----------------------

@@ -113,11 +113,16 @@ def _scenario():
                                  tech=["erp"]))
 
     # 6. STALLED GIANT: modest ad count but a large verified-aged live stock.
+    #    Ages sit inside CONFIG["age"]["hard_cap_days"] but well past the
+    #    45-day proxy line: what makes this company stalled is its live stock
+    #    standing still, not the crawl row being ancient. At the previous
+    #    ages (100+) the recency cap dropped it from the pool entirely and
+    #    three tests lost their subject.
     companies.append(_company("stalled", "Stalled AG", it_postings=6))
     ba.append(_ba("stalled", stock=60, it_stock=50, it_flow=5, flow=8))
     for i in range(6):
         postings.append(_posting(f"s{i}", "stalled", f"Java Entwickler {i}",
-                                 age=100 + i, tech=["language"], seniority="senior"))
+                                 age=70 + i, tech=["language"], seniority="senior"))
 
     # 7. TINY: exactly at the pool minimum, nothing else remarkable.
     companies.append(_company("tiny", "Tiny UG", it_postings=3))

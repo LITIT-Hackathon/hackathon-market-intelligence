@@ -310,14 +310,17 @@ def confidence(scored: pd.DataFrame) -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 
 def _evidence(grp: pd.DataFrame, max_n: int) -> str:
-    """The postings behind the score, oldest first.
+    """The postings behind the score, freshest first.
 
-    Oldest first because the claim being evidenced is unmet demand: the longest
-    unfilled role is the strongest exhibit, and it is also the one a salesperson
-    can open a call with. Every entry keeps its live source URL so any number on
-    screen is one click from the advertisement that produced it.
+    Freshest first because the reader is deciding whether to call today, and
+    the newest advertisement is both the most likely to still be open and the
+    most natural thing to open a call with. The pool is already capped at
+    CONFIG["age"]["hard_cap_days"], so nothing here is stale in absolute terms
+    and the ordering is choosing between recent exhibits, not hiding old ones.
+    Every entry keeps its live source URL so any number on screen is one click
+    from the advertisement that produced it.
     """
-    cand = grp.sort_values("posting_age_days", ascending=False)
+    cand = grp.sort_values("posting_age_days", ascending=True)
     out = []
     for r in cand.head(max_n).itertuples():
         out.append({
