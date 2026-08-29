@@ -1,106 +1,228 @@
-"""Validation without ground truth (ALGORITHM.md 7 / ALGORITHM_PEOPLE.md 7).
+"""Validation without ground truth.
 
-V1  divergence  -- rank correlation vs the naive volume ranking must be LOW
-V2  adversarial -- named defects: forbidden classes / NTT in the prospect list
-V3  sensitivity -- top-20 must survive +-20% weight perturbation
-People V1/V2    -- value vs skill-count correlation; no phantom supply
-V4              -- enforced by absence: nothing here touches the fixture labels
+There are no labels saying "this company became a customer", so accuracy,
+precision and recall are unavailable and claiming them would be dishonest. What
+IS available is a set of properties the ranking must have if it is doing the
+job, and each of these is a number that can be put on a slide and argued with.
+
+    V1  divergence     it must not be a vacancy-count ranking in disguise
+    V2  adversarial    no competitor, agency or unverified row near the top
+    V3  sensitivity    the top 20 must survive +-20% on every weight
+    V4  stability      the top 20 must survive deleting one vacancy per company
+    V5  small-sample   thin-evidence rows must not dominate the head
+    V6  traceability   every ranked row must carry clickable evidence
+    V7  people         value must not be a skill count, and must reward
+                       covering demand nobody else on the bench covers
+
+V3 and V4 are the two that matter most and they test different things. V3 asks
+whether the WEIGHTS are doing work the signals should be doing. V4 asks whether
+the DATA is thin enough that one advertisement decides the leaderboard -- which,
+on a pool whose median company has four vacancies, is the likelier failure.
 """
 
 from __future__ import annotations
 
+import json
+
 import numpy as np
 import pandas as pd
 
+from . import eligibility as el
 from .config import CONFIG
 
 
 def _spearman(a: pd.Series, b: pd.Series) -> float:
-    """Spearman = Pearson on ranks. Avoids the scipy dependency."""
-    return float(a.rank().corr(b.rank()))
+    a, b = pd.Series(a).astype(float), pd.Series(b).astype(float)
+    ok = a.notna() & b.notna()
+    if ok.sum() < 3:
+        return float("nan")
+    return round(float(a[ok].rank().corr(b[ok].rank())), 3)
 
+
+# ---------------------------------------------------------------------------
 
 def v1_divergence(ranked: pd.DataFrame) -> dict:
-    live = ranked[ranked["rank"].notna()]
-    rho = _spearman(live["opportunity"], live["it_n"])
+    rho = _spearman(ranked["opportunity"], ranked["it_n"])
     return {
-        "spearman_vs_volume": round(rho, 3),
-        "verdict": "ok" if rho < 0.8 else "TOO CLOSE TO A VOLUME RANKING",
-        "note": "correlation with it_n cannot be ~0 -- N1 counts unfilled postings, "
-                "which grows with volume. The claim is divergence, not independence.",
+        "spearman_vs_it_postings": rho,
+        "verdict": "ok" if rho < 0.55 else "TOO CLOSE TO A VOLUME RANKING",
+        "note": ("correlation cannot be zero -- unfilled demand is counted, and "
+                 "counts grow with volume. The claim is divergence, not "
+                 "independence: the top 20 must not be the volume top 20."),
+        "top20_overlap_with_volume_top20": int(len(
+            set(ranked.nlargest(20, "opportunity")["company_key"])
+            & set(ranked.nlargest(20, "it_n")["company_key"]))),
     }
 
 
-def v2_adversarial(ranked: pd.DataFrame) -> dict:
-    live = ranked[ranked["rank"].notna()]
-    bad_class = live[~live["company_class"].isin(CONFIG["eligible_classes"])]
-    ntt = live[live["company_name"].str.contains(
-        r"(?<![A-Za-z0-9])NTT(?![A-Za-z0-9])", case=False, regex=True)]
-    defects = len(bad_class) + len(ntt)
+def v2_adversarial(ranked: pd.DataFrame, k: int = 20) -> dict:
+    head = ranked.head(k)
+    forbidden = head[head["segment"].isin(el.CHANNEL_SEGMENTS + el.NOISE_SEGMENTS)]
+    unverified = head[~head["segment_verified"]]
     return {
-        "forbidden_class_rows": bad_class["company_name"].tolist(),
-        "ntt_rows": ntt["company_name"].tolist(),
-        "defects": defects,
-        "verdict": "clean" if defects == 0 else f"{defects} NAMED DEFECTS",
+        "top_k": k,
+        "channel_or_noise_rows": forbidden[["company_name", "segment"]].to_dict("records"),
+        "unverified_segment_rows": unverified["company_name"].tolist(),
+        "defects": int(len(forbidden)),
+        "verdict": "clean" if len(forbidden) == 0 else "CONTAMINATED",
+        "note": ("unverified rows are not defects -- they are companies no "
+                 "outside authority could confirm, and they are listed so a "
+                 "human can check them before the list is worked."),
     }
 
 
-def v3_sensitivity(signals_scored: pd.DataFrame) -> dict:
-    """Recompute Need under perturbed weights; measure top-K stability."""
-    v = CONFIG["validation"]
-    w0 = CONFIG["need_weights"]
-    live = signals_scored[signals_scored["rank"].notna()].copy()
+def v3_sensitivity(feats: pd.DataFrame, svc: pd.DataFrame, pool: pd.DataFrame,
+                   ranked: pd.DataFrame) -> dict:
+    """Re-score under perturbed weights; report the worst top-K overlap."""
+    from . import scoring
 
-    base_top = set(live.nlargest(v["top_k"], "opportunity")["company_key"])
-    rng = np.random.default_rng(7)
+    cfg = CONFIG["validation"]
+    k, base_w = cfg["top_k"], dict(CONFIG["signal_weights"])
+    base = set(ranked.head(k)["company_key"])
+    rng = np.random.default_rng(20260829)
+
     overlaps = []
-    for _ in range(v["perturbation_samples"]):
-        w = {k: val * (1 + rng.uniform(-v["perturbation"], v["perturbation"]))
-             for k, val in w0.items()}
-        total = sum(w.values())
-        need = (w["n1"] * live["n1"] + w["n2"] * live["n2"]
-                + w["n3"] * live["n3"] + w["n4"] * live["n4"]) / total * 100
-        opp = need * live["serviceability"]
-        top = set(live.assign(_o=opp).nlargest(v["top_k"], "_o")["company_key"])
-        overlaps.append(len(base_top & top))
+    try:
+        for _ in range(cfg["perturbation_samples"]):
+            factors = 1 + rng.uniform(-cfg["perturbation"], cfg["perturbation"], len(base_w))
+            CONFIG["signal_weights"] = {
+                name: base_w[name] * f for name, f in zip(base_w, factors)}
+            alt = scoring.score(feats, svc, pool)
+            overlaps.append(len(base & set(alt.head(k)["company_key"])))
+    finally:
+        CONFIG["signal_weights"] = base_w
 
     return {
-        "top_k": v["top_k"],
+        "top_k": k, "min_overlap": int(min(overlaps)),
+        "mean_overlap": round(float(np.mean(overlaps)), 1),
+        "samples": len(overlaps),
+        "verdict": "stable" if min(overlaps) >= 0.8 * k else "WEIGHT-SENSITIVE",
+    }
+
+
+def v4_jackknife(postings: pd.DataFrame, companies: pd.DataFrame,
+                 segments: pd.DataFrame, ba, bench, ranked: pd.DataFrame,
+                 k: int = 20, rounds: int = 3) -> dict:
+    """Delete one vacancy per company and see whether the head survives.
+
+    The sharpest honest test available on this data. The median ranked company
+    has four IT vacancies, so if the ordering is really being decided by single
+    advertisements this is where it shows -- and no amount of weight tuning can
+    hide it.
+    """
+    from . import features, match, scoring
+
+    base = set(ranked.head(k)["company_key"])
+    overlaps, survivor_overlaps, dropouts = [], [], []
+    for seed in range(rounds):
+        rng = np.random.default_rng(1000 + seed)
+        drop = (postings[postings["is_it_role"] & ~postings["is_training_role"]]
+                .groupby("company_key")["posting_id"]
+                .apply(lambda s: s.iloc[rng.integers(0, len(s))]))
+        reduced = postings[~postings["posting_id"].isin(set(drop))]
+        feats, pool = features.build(reduced, companies, segments, ba)
+        if feats.empty:
+            continue
+        svc = match.serviceability(pool, bench)
+        alt = scoring.score(feats, svc, pool)
+        alt_keys = set(alt["company_key"])
+
+        overlaps.append(len(base & set(alt.head(k)["company_key"])))
+        # Separate two failure modes: a head row REORDERED (real instability)
+        # vs a head row that fell below min_it_postings and left the pool
+        # (threshold churn -- a known property of any count threshold, and a
+        # company at exactly the minimum always loses a third of its evidence
+        # here). Only the first says the SCORE is fragile.
+        survivors = [c for c in ranked.head(k)["company_key"] if c in alt_keys]
+        dropouts.append(k - len(survivors))
+        if survivors:
+            survivor_overlaps.append(
+                len(set(survivors) & set(alt.head(k)["company_key"])) / len(survivors))
+
+    if not overlaps:
+        return {"top_k": k, "verdict": "not run"}
+    surv = round(float(np.mean(survivor_overlaps)), 3) if survivor_overlaps else float("nan")
+    return {
+        "top_k": k, "rounds": len(overlaps),
         "min_overlap": int(min(overlaps)),
         "mean_overlap": round(float(np.mean(overlaps)), 1),
-        "verdict": "stable" if min(overlaps) >= v["top_k"] - 3 else "WEIGHT-SENSITIVE",
+        "mean_pool_dropouts_from_head": round(float(np.mean(dropouts)), 1),
+        "survivor_retention": surv,
+        "verdict": "stable" if surv >= 0.7 else "ONE-VACANCY SENSITIVE",
+        "note": ("one randomly chosen IT vacancy removed from every company; "
+                 "survivor_retention scores only companies still above the "
+                 "pool threshold, dropouts count threshold churn separately"),
     }
 
 
-def people_checks(value: pd.DataFrame, supply_index: pd.DataFrame,
-                  bench: pd.DataFrame) -> dict:
-    rho = _spearman(value["value"], value["skill_breadth"])
-
-    # no supply cell may claim a tech tag no candidate in it actually holds
-    phantom = 0
-    for cell in supply_index.itertuples():
-        members = bench[(bench["role_family"] == cell.role_family)
-                        & (bench["seniority"] == cell.seniority)]
-        held = set().union(*members["tech_tags"]) if len(members) else set()
-        phantom += sum(1 for tag in cell.tech_tags if tag not in held)
-
+def v5_small_sample(ranked: pd.DataFrame, k: int = 20) -> dict:
+    head, pool = ranked.head(k), ranked
     return {
-        "value_vs_skill_count_spearman": round(rho, 3),
-        "v1_verdict": "ok" if abs(rho) < 0.5 else "SKILL-COUNT RANKING",
-        "phantom_supply_tags": phantom,
-        "thin_cells_flagged": int(supply_index["thin_cell"].sum()),
-        "all_synthetic_labelled": bool((bench["source"] == "synthetic").all()),
-        "label_precision_claims": "none, by design (V4)",
+        "top_k": k,
+        "median_it_n_top": float(head["it_n"].median()),
+        "median_it_n_pool": float(pool["it_n"].median()),
+        "min_evidence_rows_in_top": int(head["it_n"].min()),
+        "share_of_top_at_pool_minimum": round(
+            float((head["it_n"] <= CONFIG["min_it_postings"]).mean()), 3),
+        "verdict": "ok" if head["it_n"].median() >= pool["it_n"].median()
+                   else "THIN-EVIDENCE ROWS DOMINATE THE HEAD",
+        "note": ("the head should rest on MORE evidence than the pool average, "
+                 "not less. A head made of three-posting companies is a "
+                 "small-sample artefact whatever the signals say."),
     }
 
 
-def run_all(ranked: pd.DataFrame, value: pd.DataFrame,
-            supply_index: pd.DataFrame, bench: pd.DataFrame) -> dict:
+def v6_traceability(ranked: pd.DataFrame) -> dict:
+    def n_ev(raw) -> int:
+        try:
+            return len(json.loads(raw)) if isinstance(raw, str) else 0
+        except json.JSONDecodeError:
+            return 0
+
+    counts = ranked["evidence"].map(n_ev)
+    urls = ranked["evidence"].map(
+        lambda r: all(e.get("url") for e in json.loads(r)) if isinstance(r, str) else False)
     return {
+        "rows_without_evidence": int((counts == 0).sum()),
+        "rows_with_a_missing_url": int((~urls).sum()),
+        "median_evidence_postings": float(counts.median()),
+        "verdict": "clean" if (counts == 0).sum() == 0 else "UNTRACEABLE ROWS",
+    }
+
+
+def v7_people(value: pd.DataFrame, cells: pd.DataFrame) -> dict:
+    rho_breadth = _spearman(value["value_raw"], value["tech_tags"].map(len))
+    rho_unique = _spearman(value["value_raw"], value["uniqueness"])
+    return {
+        "value_vs_skill_count_spearman": rho_breadth,
+        "value_vs_uniqueness_spearman": rho_unique,
+        "verdict": "ok" if (rho_breadth < 0.6 and rho_unique > 0) else "LOOKS LIKE A SKILL COUNT",
+        "note": ("'most skills wins' is the people-side equivalent of ranking "
+                 "companies by vacancy count. Value should track UNIQUENESS of "
+                 "coverage, not breadth of CV."),
+        "cells": int(len(cells)),
+        "cells_with_no_bench_coverage": int((cells["mean_coverage"] == 0).sum())
+                                        if len(cells) else 0,
+        "all_bench_labelled_synthetic": bool(len(value) and (value["source"] == "synthetic").all()),
+        "label_precision_claims": "none, by design -- no ground-truth placements exist",
+    }
+
+
+def run_all(ranked: pd.DataFrame, feats: pd.DataFrame, svc: pd.DataFrame,
+            pool: pd.DataFrame, value: pd.DataFrame, cells: pd.DataFrame,
+            postings=None, companies=None, segments=None, ba=None,
+            bench=None) -> dict:
+    checks = {
         "companies": {
             "v1_divergence": v1_divergence(ranked),
             "v2_adversarial": v2_adversarial(ranked),
-            "v3_sensitivity": v3_sensitivity(ranked),
+            "v3_sensitivity": v3_sensitivity(feats, svc, pool, ranked),
+            "v5_small_sample": v5_small_sample(ranked),
+            "v6_traceability": v6_traceability(ranked),
         },
-        "people": people_checks(value, supply_index, bench),
+        "people": v7_people(value, cells),
     }
+    if postings is not None and bench is not None:
+        checks["companies"]["v4_jackknife"] = v4_jackknife(
+            postings, companies, segments, ba, bench, ranked)
+    return checks
