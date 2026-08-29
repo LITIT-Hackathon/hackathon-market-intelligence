@@ -719,3 +719,53 @@ BENCH_SENIORITY = [("junior", 0.28), ("mid", 0.40), ("senior", 0.26), ("lead", 0
 BENCH_AVAILABILITY = [("now", 0.25), ("in_30d", 0.35), ("in_90d", 0.25), ("unavailable", 0.15)]
 BENCH_GERMAN_RATE = 0.30      # German capability is a hard nearshore constraint
 BENCH_REGIONS = [("LT011", 0.7), ("LT021", 0.2), ("remote_eu", 0.1)]   # Vilnius / Kaunas
+
+# ---------------------------------------------------------------------------
+# Bench commercials and engineering footprint.
+#
+# SIMULATED, and named `sim_` downstream so the prefix survives every join: the
+# bench is synthetic, so these are properties of invented people. They are
+# DISPLAY attributes only -- nothing in people.py or scoring.py reads them,
+# because a generated number must never move a ranking.
+#
+# Coefficients are the ones calibrated for the retired simulation layer
+# (simcoeff.py, commit ebcb272), kept rather than re-invented so the observed
+# distributions in DATA.md still describe the output.
+# ---------------------------------------------------------------------------
+
+# GitHub stands in for a real GitHub user-API pull. It is applied to PEOPLE,
+# not companies: for German mid-market employers a public presence is rare and
+# uninformative, whereas for an individual consultant it is genuine evidence of
+# competence -- but only in the families that actually publish code, which is
+# why the rate collapses for analyst and support.
+BENCH_GITHUB_PROFILE_RATE = {
+    "dev": 0.78, "data": 0.58, "architect": 0.62, "ops": 0.48,
+    "security": 0.44, "qa": 0.36, "analyst": 0.16, "support": 0.10,
+}
+BENCH_GITHUB_PROFILE_RATE_DEFAULT = 0.30
+# Families where a public profile is weak evidence either way, so the UI shows
+# "not a signal for this role" instead of an empty score that reads as a defect.
+BENCH_GITHUB_RELEVANT = {"dev", "data", "architect", "ops", "security", "qa"}
+
+BENCH_GITHUB_REPOS_MEDIAN = {"dev": 14, "data": 9, "architect": 11, "ops": 8,
+                             "security": 7, "qa": 5, "analyst": 3, "support": 2}
+BENCH_GITHUB_CONTRIB_MEDIAN = {"dev": 210, "data": 130, "architect": 120, "ops": 95,
+                               "security": 70, "qa": 55, "analyst": 25, "support": 15}
+# Heavy-tailed on purpose: most consultants have almost nothing public and a
+# few have a great deal. A uniform draw would make the field useless as a
+# discriminator, which is exactly how it behaves in reality.
+BENCH_GITHUB_REPOS_SIGMA = 0.75
+BENCH_GITHUB_CONTRIB_SIGMA = 0.95
+BENCH_GITHUB_STARS_SIGMA = 1.9
+BENCH_GITHUB_YEARS_FACTOR = 0.055     # per year of experience, compounding
+
+# Lithuanian nearshore day rate charged to a German client, EUR.
+BENCH_DAY_RATE = {"junior": 370, "mid": 490, "senior": 640, "lead": 810}
+BENCH_RATE_SIGMA = 0.09
+# German capability is chargeable: a consultant who can run client meetings in
+# German commands a premium and unlocks work others cannot take.
+BENCH_GERMAN_PREMIUM = 1.12
+# Billable days in a year, for turning a day rate into an annual cost a client
+# can compare against a salary.
+BENCH_BILLABLE_DAYS_YEAR = 215
+

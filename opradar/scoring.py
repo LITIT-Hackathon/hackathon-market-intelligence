@@ -226,9 +226,23 @@ def signals(feats: pd.DataFrame) -> pd.DataFrame:
     f["burst_strength"] = (burst_share * np.clip(burst_mag, 0, 1)).round(4)
     f["excess_concentration"] = [round(excess_concentration(c or {}, pool_hhi), 4)
                                  for c in f["tech_counts"]]
-    f["programme"] = (f["burst_strength"]
-                      * f["excess_concentration"].clip(lower=cfg["programme_conc_floor"])
-                      * f["team_shape"].clip(lower=cfg["programme_shape_floor"])).round(4)
+    # GEOMETRIC MEAN of the three, not their raw product. Multiplying three
+    # numbers below 1 collapses the scale: measured on this pool the plain
+    # product floored 106 of 142 companies and its best score across the entire
+    # market was 0.21, so the signal the brief cares about most -- "is this a
+    # pattern or is it backfill?" -- could never contribute more than a rounding
+    # error to the ranking. Siemens Energy, which is the brief's own worked
+    # example (8 roles in 15 days spanning architect, build, run and assure),
+    # scored 0.18 and ranked 69th of 142.
+    #
+    # The cube root restores a comparable scale without weakening the AND: a
+    # zero on any leg still zeroes the signal, because all three are necessary
+    # for a programme to exist. It only stops "all three moderately present"
+    # from reading as "absent".
+    legs = (f["burst_strength"]
+            * f["excess_concentration"].clip(lower=cfg["programme_conc_floor"])
+            * f["team_shape"].clip(lower=cfg["programme_shape_floor"]))
+    f["programme"] = np.cbrt(legs.clip(lower=0.0)).round(4)
     # evidence: a stack claim needs postings that actually name a technology
     f["programme_e"] = np.clip(f["tech_covered_n"] / cfg["programme_tech_evidence"], 0, 1)
 
@@ -383,6 +397,129 @@ def _timeline(grp: pd.DataFrame) -> str:
 # the score
 # ---------------------------------------------------------------------------
 
+
+# ---------------------------------------------------------------------------
+# what we would actually sell them
+# ---------------------------------------------------------------------------
+
+# Sales language per opportunity shape. Deterministic: the shape is decided by
+# the computed signals, and the wording is a template filled with this
+# company's own numbers. No model writes any of this, so nothing here can
+# invent a fact the evidence does not support.
+# Internal category names are not sales language. "language" is our label for
+# programming-language skills and reads as linguistics on a slide; "quality" is
+# test automation. Everything a salesperson sees goes through this map.
+TECH_LABEL = {
+    "language": "software engineering", "data": "data", "cloud": "cloud",
+    "erp": "SAP/ERP", "quality": "test automation", "devops": "DevOps",
+    "backend": "backend", "frontend": "frontend", "embedded": "embedded systems",
+    "security": "security", "network": "network", "platform": "platform",
+    "mobile": "mobile",
+}
+
+
+OPPORTUNITY_TYPES = {
+    "programme": (
+        "Delivery team for a {tech} programme",
+        "They are standing up a team, not backfilling: {burst} roles opened inside "
+        "{span} days spanning {families}. Lead with a squad, not individual CVs."),
+    "senior_gap": (
+        "Senior {tech} capacity they cannot hire locally",
+        "{senior} of their roles with a stated level are senior or lead and "
+        "{aged} have been open over a month. Seniority is what German employers "
+        "struggle hardest to hire; lead with named senior profiles."),
+    "chronic": (
+        "Managed {tech} delivery for long-unfilled roles",
+        "{aged} of {stock} live IT roles have been open more than a month. They "
+        "have tried to hire and it is not working; lead with taking the whole "
+        "workstream rather than one seat."),
+    "scaling": (
+        "Capacity partner for a scaling {tech} team",
+        "Their posting rate is running above their own baseline. Lead with speed "
+        "to onboard — they need people faster than they can recruit them."),
+    "captive_overflow": (
+        "Overflow capacity for an in-house IT provider",
+        "An in-house IT arm carrying {stock} live roles. These buy external "
+        "delivery as routine and have a procurement path already open."),
+    "public_framework": (
+        "Framework delivery capacity for a public body",
+        "Public sector: expect a formal tender and a longer cycle. Worth "
+        "positioning early, and worth checking existing framework status first."),
+    "watch": (
+        "Watch — no clear pattern yet",
+        "Steady IT hiring with nothing unusual in the shape of it. Not a call "
+        "this quarter; worth re-checking when the board moves."),
+}
+
+
+def _families_phrase(families: dict) -> str:
+    if not families:
+        return "several disciplines"
+    top = sorted(families.items(), key=lambda kv: -kv[1])[:3]
+    names = [k for k, _ in top]
+    if len(names) == 1:
+        return names[0]
+    return ", ".join(names[:-1]) + " and " + names[-1]
+
+
+def opportunity_type(r) -> tuple[str, str, str]:
+    """(type key, what we would sell, how to approach it).
+
+    Ordered by how specific the pitch is, not by score: a detected programme is
+    a better sales conversation than a general shortage, even at the same
+    opportunity score, because it names a thing the buyer already knows they
+    are doing.
+    """
+    tech = (r.get("top_technologies") or ["IT"])
+    tech = tech[0] if isinstance(tech, list) and tech else "IT"
+    tech = TECH_LABEL.get(tech, tech)
+    stock = r.get("now_it_stock")
+    stock = int(stock) if stock == stock and stock is not None else int(r.get("it_n", 0))
+    aged = r.get("now_aged_open")
+    aged = int(aged) if aged == aged and aged is not None else int(r.get("snap_aged_45", 0))
+
+    fields = {
+        "tech": tech, "stock": stock, "aged": aged,
+        "burst": int(r.get("burst_n", 0)), "span": int(r.get("burst_span_days", 0)),
+        "senior": int(r.get("senior_k", 0)),
+        "families": _families_phrase(r.get("families") or {}),
+    }
+
+    if r.get("segment") == "public_sector":
+        key = "public_framework"
+    elif r.get("segment") == "captive_it":
+        key = "captive_overflow"
+    elif r.get("programme", 0) >= 0.40 and int(r.get("burst_n", 0)) >= 4             and float(r.get("team_shape", 0)) >= 0.5:
+        key = "programme"
+    elif int(r.get("senior_k", 0)) >= 3 and float(r.get("seniority", 0)) >= 0.35:
+        key = "senior_gap"
+    elif aged >= 5 and float(r.get("unmet", 0)) >= 0.45:
+        key = "chronic"
+    elif float(r.get("expansion", 0) or 0) >= 0.62:
+        key = "scaling"
+    elif float(r.get("unmet", 0)) >= 0.35:
+        key = "chronic"
+    else:
+        key = "watch"
+
+    label, approach = OPPORTUNITY_TYPES[key]
+    return key, label.format(**fields), approach.format(**fields)
+
+
+def attach_opportunity(s: pd.DataFrame) -> pd.DataFrame:
+    """The brief's missing line: what the opportunity IS, not just how big.
+
+    A ranked list of companies with scores answers "who first?" but not "and
+    what do I say?". The shape of the demand already tells us: a burst of
+    correlated roles is a team to pitch, a wall of senior vacancies open for
+    months is a shortage to solve, a public body is a framework conversation.
+    """
+    triples = [opportunity_type(r) for r in s.to_dict("records")]
+    s["opportunity_type"] = [t[0] for t in triples]
+    s["opportunity_label"] = [t[1] for t in triples]
+    s["opportunity_approach"] = [t[2] for t in triples]
+    return s
+
 def score(feats: pd.DataFrame, serviceability: pd.DataFrame,
           eligible_pool: pd.DataFrame) -> pd.DataFrame:
     """Signals -> effective signals -> weighted geometric mean -> percentile."""
@@ -440,6 +577,8 @@ def score(feats: pd.DataFrame, serviceability: pd.DataFrame,
     tl = eligible_pool.groupby("company_key").apply(_timeline, include_groups=False)
     s["timeline"] = s["company_key"].map(tl)
     s["config_hash"] = config_hash()
+
+    s = attach_opportunity(s)
 
     s = s.sort_values(["opportunity", "confidence"], ascending=False).reset_index(drop=True)
     s["rank"] = s.index + 1

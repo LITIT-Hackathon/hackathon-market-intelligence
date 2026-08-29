@@ -380,6 +380,39 @@ def test_capability_plan_is_actionable():
     assert (plan["priority"] <= plan["demand_weight"] + 1e-9).all()
 
 
+def test_bench_github_is_family_aware_and_display_only():
+    """GitHub must be evidence where code is published and silent elsewhere."""
+    b = bench_gen.generate()
+    # relevance follows the role family, not the individual
+    assert b.loc[b.role_family == "dev", "sim_github_relevant"].all()
+    assert not b.loc[b.role_family == "support", "sim_github_relevant"].any()
+    # developers publish far more than analysts
+    dev = b[b.role_family == "dev"]["sim_github_profile"].mean()
+    ana = b[b.role_family == "analyst"]["sim_github_profile"].mean()
+    assert dev > ana
+    # the 0-100 reading exists ONLY where a profile is both relevant and present,
+    # so an empty cell reads as "not measured", never as "measured and bad"
+    scored = b["sim_github_score"].notna()
+    assert (scored <= (b["sim_github_relevant"] & b["sim_github_profile"])).all()
+    assert scored.any()
+
+
+def test_bench_day_rate_ladders_and_is_never_scored():
+    b = bench_gen.generate()
+    med = b.groupby("seniority")["sim_day_rate_eur"].median()
+    assert med["junior"] < med["mid"] < med["senior"] < med["lead"]
+    # German capability is chargeable
+    assert b[b.speaks_german]["sim_day_rate_eur"].mean() >            b[~b.speaks_german]["sim_day_rate_eur"].mean()
+    # and none of it may reach the ranking: value must not move when rates do
+    _, feats, pool, _, _ = _run()
+    ranked, *_ = _run()
+    base = people.person_value(b, pool, ranked)
+    hiked = b.copy()
+    hiked["sim_day_rate_eur"] = hiked["sim_day_rate_eur"] * 10
+    after = people.person_value(hiked, pool, ranked)
+    assert base["value_raw"].tolist() == after["value_raw"].tolist()
+
+
 def test_bench_is_deterministic_and_labelled():
     b1, b2 = bench_gen.generate(), bench_gen.generate()
     assert b1.equals(b2)

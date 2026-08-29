@@ -54,8 +54,12 @@ html::-webkit-scrollbar-thumb{background:#3D423F;background-clip:padding-box}
 header{background:var(--ink);color:#fff;padding:22px 32px 0}
 .bar{display:flex;align-items:flex-end;justify-content:space-between;gap:24px;flex-wrap:wrap}
 .brand{display:flex;align-items:baseline;gap:14px}
-.brand .mark{font-family:var(--disp);font-weight:800;font-stretch:70%;font-size:30px;
-  letter-spacing:.02em;text-transform:uppercase;color:#fff}
+.brand{align-items:center}
+.brand .mark{font-family:var(--disp);font-weight:800;font-stretch:75%;font-size:34px;
+  letter-spacing:.01em;text-transform:uppercase;color:#fff;line-height:.86}
+.brand .byline{font:600 9.5px/1.25 var(--sans);letter-spacing:.13em;text-transform:uppercase;
+  color:var(--muted-2);align-self:center}
+.brand .byline b{display:block;color:#fff;font-weight:700}
 .brand .mark b{color:var(--accent)}
 .brand .sub{font:500 11px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;color:var(--muted-2)}
 .stamp{display:flex;gap:7px;flex-wrap:wrap;justify-content:flex-end}
@@ -93,8 +97,47 @@ main{background:var(--paper);border-radius:var(--r) var(--r) 0 0;
   padding:var(--s5) 32px 90px;min-height:70vh}
 .screen{display:none}
 .screen.on{display:block}
-.screen>h2{font-family:var(--disp);font-weight:700;font-stretch:68%;text-transform:uppercase;
-  font-size:clamp(34px,5vw,58px);line-height:.92;letter-spacing:-.015em;margin:6px 0 10px}
+.screen>h2{font-family:var(--disp);font-weight:800;font-stretch:75%;text-transform:uppercase;
+  font-size:clamp(34px,5vw,58px);line-height:.88;letter-spacing:-.02em;margin:6px 0 14px;
+  text-wrap:balance}
+
+/* ---------- marker highlights ----------
+   litit.tech's signature device: a solid colour block set behind a phrase,
+   with the text knocked through in the contrasting ink. Here it is not
+   decoration -- the colour carries the same meaning it carries everywhere
+   else on the page, so a highlight always marks the SUBJECT of the heading:
+   yellow for the market's demand, iris for our side of the trade, green for
+   something confirmed. box-decoration-break keeps the block intact when a
+   phrase wraps across lines, which is what makes it read as marker pen
+   rather than as a button. */
+/* ---------- hover glossary ----------
+   Half these column names are terms of art -- "tension", "nice-to-have",
+   "coverage gap" -- and a reader who has to guess what a number means will
+   either ignore it or, worse, quote it wrongly. Any element carrying
+   data-help explains itself on hover and on keyboard focus.
+
+   The tooltip is positioned BELOW its anchor on purpose: table headers sit at
+   the top of a scroll container whose overflow clips anything above them, so
+   an upward tooltip would be invisible exactly where it is needed most. */
+[data-help]{position:relative}
+th[data-help]>.t,.kpi[data-help]>.label{border-bottom:1px dotted var(--muted-2);cursor:help}
+[data-help]::after{content:attr(data-help);position:absolute;z-index:40;
+  top:calc(100% + 7px);left:0;width:max-content;max-width:290px;
+  background:var(--ink);color:#fff;border-radius:var(--r-sm);
+  padding:9px 12px;font:400 12px/1.45 var(--sans);letter-spacing:0;
+  text-transform:none;text-align:left;white-space:normal;
+  box-shadow:var(--pop);opacity:0;visibility:hidden;transform:translateY(-3px);
+  transition:opacity var(--ease),transform var(--ease),visibility var(--ease);
+  pointer-events:none}
+[data-help]:hover::after,[data-help]:focus-visible::after{opacity:1;visibility:visible;transform:none}
+/* a tooltip on the last columns would run off the right edge */
+th[data-help].r::after{left:auto;right:0}
+
+.mk{display:inline;padding:.04em .26em;border-radius:.14em;
+  background:var(--accent);color:var(--ink);
+  -webkit-box-decoration-break:clone;box-decoration-break:clone}
+.mk-i{background:var(--iris);color:#fff}
+.mk-g{background:var(--pos);color:var(--ink)}
 .lede{max-width:70ch;color:var(--muted);margin-bottom:var(--s5)}
 
 /* ---------- kpis ---------- */
@@ -289,7 +332,14 @@ input[type=range]::-moz-range-thumb{width:14px;height:14px;border-radius:50%;
    number lives in the panel underneath. */
 .rk{font:600 12px/1 var(--sans);color:var(--muted-2);font-variant-numeric:tabular-nums}
 .cname{font-weight:600;font-size:14.5px;letter-spacing:-.005em}
+.opp-label{display:block;margin-top:5px;font:600 13px/1.35 var(--sans);color:var(--text)}
+.opp-label::before{content:"";display:inline-block;width:6px;height:6px;border-radius:2px;
+  background:var(--accent);margin-right:7px;vertical-align:middle}
+.opp-approach{display:block;margin-top:6px;padding:10px 13px;border-radius:var(--r-sm);
+  background:var(--iris-soft);color:var(--text);font:400 13px/1.5 var(--sans);max-width:74ch}
+.opp-approach b{font-weight:600}
 .csub{display:block;margin-top:4px;font:400 12.5px/1.45 var(--sans);color:var(--muted);max-width:52ch}
+.na{color:var(--muted);font-style:italic}
 .cchips{display:block;margin-top:7px}
 
 .sig{display:grid;gap:7px;min-width:172px;max-width:290px}
@@ -481,17 +531,24 @@ function hbar2(el, rows, opts = {}) {
      side of the trade, the second always the market's. */
   const [lo, lm] = opts.legend || ['supply', 'demand'];
   const max = Math.max(1e-9, ...rows.flatMap(r => [r[1], r[2]]));
-  const tension = rows.some(r => r[3] !== undefined);
+  /* Right-hand value column: either an explicit per-row number (r[3], used by
+     the skill-tension chart) or a function of the two bars, which is how the
+     gap charts show the thing the reader is actually looking for -- how far
+     the market's share runs ahead of ours. */
+  const valueOf = opts.value || (r => (r[3] !== undefined ? r[3].toFixed(2) : ''));
+  const showValue = opts.value ? true : rows.some(r => r[3] !== undefined);
+  const tension = showValue;
   el.innerHTML = '<div class="hbar2">' + rows.map(r => {
     const a = (r[1] / max * 100).toFixed(1), b = (r[2] / max * 100).toFixed(1);
     return `<div class="k" title="${esc(r[0])}">${esc(r[0])}</div>`
          + `<div class="t2">`
          + `<i class="s" style="width:${a}%" title="${esc(lo)} ${(r[1]*100).toFixed(1)}%"></i>`
          + `<i class="d" style="width:${b}%" title="${esc(lm)} ${(r[2]*100).toFixed(1)}%"></i></div>`
-         + `<div class="v">${r[3] !== undefined ? r[3].toFixed(2) : ''}</div>`;
+         + `<div class="v">${showValue ? esc(String(valueOf(r) ?? '')) : ''}</div>`;
   }).join('') + '</div>'
   + `<div class="lg"><span><i class="s"></i>${esc(lo)}</span><span><i class="d"></i>${esc(lm)}</span>`
-  + (tension ? '<span style="margin-left:auto">tension</span>' : '') + '</div>';
+  + (showValue ? `<span style="margin-left:auto">${esc(opts.vlabel || 'tension')}</span>` : '')
+  + '</div>';
 }
 
 /* ---------- generic table ---------- */
@@ -500,8 +557,12 @@ function makeTable(cfg) {
                   dir: cfg.dir || -1, page: 0, per: cfg.per || 100, rows: [] };
   const head = $(cfg.head), body = $(cfg.body), count = $(cfg.count), pager = $(cfg.pager);
 
-  head.innerHTML = '<tr>' + cfg.columns.map((c, i) =>
-    `<th data-i="${i}" class="${c.r ? 'r' : ''}">${esc(c.t)}<span class="ar"></span></th>`).join('') + '</tr>';
+  head.innerHTML = '<tr>' + cfg.columns.map((c, i) => {
+    const help = c.help || HELP[c.t];
+    return `<th data-i="${i}" class="${c.r ? 'r' : ''}"`
+      + (help ? ` data-help="${esc(help)}"` : '')
+      + `><span class="t">${esc(c.t)}</span><span class="ar"></span></th>`;
+  }).join('') + '</tr>';
 
   head.querySelectorAll('th').forEach(th => th.onclick = () => {
     const i = +th.dataset.i;
@@ -555,6 +616,74 @@ function makeTable(cfg) {
   return render;
 }
 
+
+/* ---------- glossary ----------
+   One definition per term, keyed by the label as it appears on screen, so a
+   column and a headline card that say the same word cannot drift into saying
+   two different things. Written for a salesperson, not for us: each one says
+   what the number IS, and where useful what it is NOT. */
+const HELP = {
+  /* --- the skill market, the worst offenders --- */
+  'Tension': 'Demand share divided by supply share for this skill. Above 1.00 means more openings ask for it than candidates hold it; below 1.00 means we have more of it than the market wants. On this synthetic dataset the whole range is 0.85-1.18, which is too narrow to act on.',
+  'Must-have': 'Openings that list this skill as a hard requirement. A candidate without it does not qualify at all.',
+  'Nice-to-have': 'Openings that list this skill as desirable but optional. It helps a candidate stand out; its absence does not disqualify them.',
+  'Weighted demand': 'Must-have mentions plus nice-to-have mentions at reduced weight, so a hard requirement counts for more than a preference.',
+  'Supply': 'Candidates in the dataset who hold this skill.',
+  'Supply %': 'Share of all candidates holding this skill.',
+  'Demand %': 'Share of all openings asking for this skill.',
+  'Qualified for': 'How many of the openings this person meets the must-have threshold for. Recomputed here, not taken from the dataset labels.',
+
+  /* --- company ranking --- */
+  'Score /100': 'A percentile within this list, not an absolute grade: 87 means ahead of 87% of the companies here. There is no outcome data to calibrate an absolute score against, so we do not claim one.',
+  'Demand · we staff': 'Two separate meters. Demand is how badly this company needs people; We staff is how much of that demand our bench could actually cover. A high score needs both.',
+  'IT': 'IT vacancies from this company in the June snapshot, after removing apprenticeships and training roles.',
+  'IT %': 'Share of this company’s total job ads that are IT roles. High share plus low volume usually means a software firm, not a buyer.',
+  'Median IT age': 'The middle vacancy age: half their IT ads are older than this. Long ages mean roles they are struggling to fill.',
+  'Vacancies': 'Open roles counted for this row.',
+  'Class': 'What kind of organisation this is, and therefore whether it can appear as a lead: end client and captive IT are prospects, agencies and IT vendors are not.',
+  'Top technologies': 'Technologies named in this company’s job titles. Titles only — the source carries no job descriptions, so roughly half of ads name no technology at all.',
+  'Regions': 'How many German regions this employer advertises in. A small company hiring across many regions is usually placing people, not hiring them.',
+
+  /* --- bench --- */
+  'German demand for this': 'How much unfilled German demand exists for this person’s role and skills, measured from real job ads — never from the synthetic openings.',
+  'How rare on our bench': 'How few colleagues could cover the same work. Rare is valuable; common means they are replaceable, however strong the CV.',
+  'Public code': 'Public repository activity, shown only for roles that actually publish code. Support and analyst profiles read “not a signal here” because an empty profile says nothing about them either way. Simulated.',
+  'Day rate': 'What we would charge a German client per day, and the same figure annualised over 215 billable days — the number a client compares against a salary. Simulated, and deliberately not part of any score.',
+  'Available': 'When this person could start. Someone who cannot start does not unlock work this quarter, whatever their skills.',
+  'Coverage gap': 'How badly our bench covers this pocket of demand. 1.00 means nobody on the bench can serve it at all.',
+  'Bench depth': 'Consultants who could cover this cell. Below five the scarcity estimate is unstable, so we flag it rather than promise it.',
+  'Companies': 'Distinct companies whose open roles fall into this cell.',
+  'Score': 'What the bench would lose if this person were not on it, times how deployable they are. Not a measure of how good they are in the abstract.',
+
+  /* --- postings --- */
+  'Age': 'Days between the ad being published and the snapshot date. Older means longer unfilled — which is the opening, not a defect.',
+  'Level': 'Skill level from the German KldB occupational code, not from the job title.',
+  'Occupational group': 'The official KldB occupational group the source assigned. It is wrong at row level often enough that we never use it as ground truth.',
+};
+
+/* Headline cards carry the same terms as the columns, so they read from the
+   same glossary rather than growing a second set of wordings. Matching on the
+   visible label keeps this working when a card is added or removed. */
+const KPI_HELP = {
+  'Companies hiring IT': 'Employers with three or more open IT roles. Below three we cannot tell a hiring pattern from coincidence, so they are not ranked.',
+  'Roles open past 3 months': 'Share of IT vacancies still advertised more than 90 days after posting. This is the opening: roles German employers are failing to fill locally.',
+  'Hiring done by agencies': 'Share of IT ads placed by recruiters and IT firms rather than the employer who actually needs the person. These are filtered out of the lead list.',
+  'Not just counting job ads': 'Rank correlation between our score and simply counting job ads. 0 = completely different, 1 = identical. Lower is better — anyone can count ads.',
+  'Recruiters in the list': 'Staffing agencies, IT vendors and our own group appearing in the ranked leads. Should be zero.',
+  'Ranking stability': 'Of the top 20, how many stay in the top 20 when every weighting is nudged up or down by a fifth. A list that reshuffles under small changes is being decided by the weights, not the evidence.',
+  'Not just the longest CV': 'Rank correlation between a consultant’s value and their number of skills. Near zero is the point: “most skills wins” is as wrong for people as “most vacancies wins” is for companies.',
+  'Skill groups': 'Role family × seniority combinations on the bench.',
+  'Typical time open': 'The middle vacancy age across the set — half are older, half younger.',
+  'Match too loose': 'Mean candidates qualifying per opening in the shipped dataset. With 73 skills and 3-5 must-haves, almost everyone matches almost everything, which is why we do not report retrieval accuracy against it.',
+  'Different skills': 'Size of the skill vocabulary in the candidate dataset.',
+  'In tech roles': 'Candidates in engineering or data roles. The rest are sales, finance and marketing profiles, irrelevant to an IT consultancy.',
+};
+document.querySelectorAll('.kpi').forEach(k => {
+  const label = k.querySelector('.label');
+  const help = label && KPI_HELP[label.textContent.trim()];
+  if (help) k.setAttribute('data-help', help);
+});
+
 /* ---------- nav ---------- */
 document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
   document.querySelectorAll('nav button').forEach(x => x.setAttribute('aria-selected', x === b));
@@ -572,7 +701,6 @@ hbar($('#c-class'), C.classes.map(r => [r[0], r[1], r[2] ? 'acc' : '']));
 hbar($('#c-tech'), C.tech);
 hbar($('#c-domain'), C.domains);
 hbar($('#c-level'), C.levels);
-cols($('#c-month'), C.months.map(r => [r[0], r[1], '']), { every: 3 });
 cols($('#c-age'), C.age_buckets.map(r => [r[0], r[1], r[0].startsWith('180') || r[0].startsWith('91') ? 'acc' : '']));
 
 const regionAbs = C.regions.map(r => [r[0], r[1]]);
@@ -683,13 +811,6 @@ if (D.talent) {
   hbar2($('#t-supplydemand'), TC.supply_demand,
         {legend: ['candidates who have it', 'openings asking for it']});
   hbar($('#t-tensiontop'), TC.tension_top.map(r => [r[0], r[1], 'acc']), { fmt: v => v.toFixed(2) });
-  hbar($('#t-tensionbot'), TC.tension_bottom.map(r => [r[0], r[1], 'mut']), { fmt: v => v.toFixed(2) });
-  hbar($('#t-rolefam'), TC.role_family);
-  hbar($('#t-roledemand'), TC.role_demand);
-  hbar($('#t-seniority'), TC.seniority);
-  hbar($('#t-experience'), TC.experience.map(r => [r[0], r[1], 'mut']));
-  hbar($('#t-industry'), TC.industry);
-  hbar($('#t-education'), TC.education.map(r => [r[0], r[1], 'mut']));
 
   /* skill market table */
   const SK = T.skills, sIdx = {};
@@ -952,7 +1073,13 @@ if (D.radar) {
         + Object.entries(unc).map(([k, v]) => `<span class="chip">${esc(k)} ×${v}</span>`).join('')
         + ` not skills our bench carries today.</p>` : '';
 
-    return `<div class="ex"><div class="extiles">${tiles}</div>`
+    return `<div class="ex">`
+      /* Open the drawer with the pitch, not the arithmetic: the salesperson
+         needs the sentence they will say before the numbers behind it. */
+      + `<p class="evhead">The opportunity</p>`
+      + `<p class="opp-approach"><b>${esc(rx('opp_label')(r))}.</b> `
+      + `${esc(rx('opp_approach')(r))}</p>`
+      + `<div class="extiles">${tiles}</div>`
       + `<div class="excols"><div><p class="evhead">Why this company</p><ul class="why">`
       + reasons(r).map(b => `<li${b.sup ? ' class="sup"' : ''}>${esc(b.t)}</li>`).join('')
       + `</ul></div><div>`
@@ -1344,6 +1471,10 @@ if (D.radar) {
             ? ' <span class="tag" title="Based on only a few job ads">thin evidence</span>' : '')
           + (rx('verified')(r)
             ? ' <span class="tag pub" title="Re-observed on the Bundesagentur board today: open roles, posting flow and agency flags all come from the source rather than from our inference">live-checked</span>' : '')
+          /* The brief's missing line: not how big the opportunity is, but
+             WHAT it is. Shown above the evidence sentence because it is the
+             thing a salesperson reads first and repeats on the call. */
+          + `<span class="opp-label">${esc(rx('opp_label')(r))}</span>`
           + `<span class="csub">${esc(plain(r))}</span>`
           + `<span class="cchips">`
           + rx('techs')(r).slice(0, 3).map(t => `<span class="chip">${esc(t)}</span>`).join('')
@@ -1369,9 +1500,13 @@ if (D.radar) {
       /* headline numbers describe what is on screen -- a header saying 306
          above a list of 109 reads as a bug to anyone who is not us */
       const sum = k => out.reduce((a, r) => a + rx(k)(r), 0);
-      $('#k-ranked').textContent = fmt(out.length);
-      $('#k-roles').textContent = fmt(sum('it_n'));
-      $('#k-stuck').textContent = fmt(sum('open45'));
+      /* Headline cards are optional: a removed card must not take the whole
+         script down with it. Before this guard, deleting one KPI threw on the
+         first filter pass and every table on every tab rendered empty. */
+      const setKpi = (sel, v) => { const el = $(sel); if (el) el.textContent = fmt(v); };
+      setKpi('#k-ranked', out.length);
+      setKpi('#k-roles', sum('it_n'));
+      setKpi('#k-stuck', sum('open45'));
       return out;
     },
     onRow: (tr, r) => {
@@ -1424,13 +1559,37 @@ if (D.bench) {
   B.cand_cols.forEach((c, i) => bIdx[c] = i);
   const bx = k => r => r[bIdx[k]];
 
-  hbar2($('#b-gap'), B.gap.map(g => {
-    const dMax = Math.max(...B.gap.map(x => x[1]));
-    const bMax = Math.max(...B.gap.map(x => x[2]));
-    return [g[0], g[2] / Math.max(bMax, 1), g[1] / Math.max(dMax, 1)];
-  }), {legend: ['our bench', 'German demand']});
-  hbar($('#b-pull'), B.supply_vs_pull.map(r => [r[0], r[2], 'acc']).sort((a, b) => b[1] - a[1]));
-  hbar($('#b-supply'), B.supply_vs_pull.map(r => [r[0], r[1], '']).sort((a, b) => b[1] - a[1]));
+  /* Both series are normalised to their own SUM, not their own maximum.
+     Dividing each by its max only says "this is the biggest bar in its row" --
+     the two bars then sit side by side implying a comparison that neither
+     number supports, because postings and consultants are different units.
+     Shares are comparable: "erp is 7% of the demand we rank and 1% of the
+     people we have" is a true sentence, and it is the sentence this chart
+     exists to make.
+     `unspecified` is dropped: it is 41% of demand and 0% of the bench, so on
+     the old scaling it drew a full-width gap bar for a technology that does
+     not exist. It is the half of ads that name no technology at all -- a
+     coverage limit, reported as a number below, not a capability gap. */
+  const gapRows = B.gap.filter(g => g[0] !== 'unspecified');
+  const dSum = gapRows.reduce((a, g) => a + g[1], 0) || 1;
+  const bSum = gapRows.reduce((a, g) => a + g[2], 0) || 1;
+  hbar2($('#b-gap'),
+    gapRows.map(g => [g[0], g[2] / bSum, g[1] / dSum])
+           .sort((a, b) => b[2] - a[2]),
+    {legend: ['share of our bench', 'share of ranked demand'],
+     vlabel: 'gap',
+     value: r => ((r[2] - r[1]) * 100).toFixed(0) + ' pts'});
+
+  /* One paired chart, not two one-sided ones: demand and supply per role
+     family are the same comparison, and showing them as separate charts made
+     the reader hold two orderings in their head to spot a gap. */
+  const famSum = B.supply_vs_pull.reduce((a, r) => [a[0] + r[1], a[1] + r[2]], [0, 0]);
+  hbar2($('#b-famgap'),
+    B.supply_vs_pull.map(r => [r[0], r[1] / (famSum[0] || 1), r[2] / (famSum[1] || 1)])
+                    .sort((a, b) => b[2] - a[2]),
+    {legend: ['share of our bench', 'share of ranked demand'],
+     vlabel: 'gap',
+     value: r => ((r[2] - r[1]) * 100).toFixed(0) + ' pts'});
 
   /* cells table */
   const renderCells = makeTable({
@@ -1478,7 +1637,7 @@ if (D.bench) {
   /* bench value table */
   const renderBench = makeTable({
     head: '#be-head', body: '#be-body', count: '#be-count', pager: '#be-pager',
-    total: B.cand_rows.length, noun: 'consultants', sort: 6, dir: -1,   /* 6 = Score */
+    total: B.cand_rows.length, noun: 'consultants', sort: 8, dir: -1,   /* 8 = Score */
     columns: [
       { t: '#', v: bx('rank'), r: true, render: (r, pos) => `<b>${pos}</b>` },
       { t: 'Consultant', v: bx('id'), cls: 'nm', render: r =>
@@ -1493,6 +1652,27 @@ if (D.bench) {
         render: r => bandWord(bx('pull')(r)) },
       { t: 'How rare on our bench', v: bx('scarcity'), r: true, render: r =>
           bandWord(bx('scarcity')(r)) + (bx('thin')(r) ? ' <span class="tag noise">thin</span>' : '') },
+      /* Public code. Only shown where it means something: analyst and support
+         consultants are not worse engineers for having no repositories, so the
+         column says so rather than printing a zero that reads as a verdict. */
+      { t: 'Public code', v: r => bx('gh_score')(r) ?? -1, r: true,
+        sortKey: r => bx('gh_score')(r) ?? -1,
+        render: r => {
+          if (!bx('gh_relevant')(r))
+            return '<span class="na" title="A public profile is not evidence '
+                 + 'either way for this kind of role">not a signal here</span>';
+          const s = bx('gh_score')(r);
+          if (s === null || s === undefined)
+            return '<span class="na" title="No public profile found">none</span>';
+          return `${bandWord(s / 100)}<span class="csub">`
+               + `${bx('gh_contrib')(r).toLocaleString()} contributions · `
+               + `${bx('gh_repos')(r)} repos</span>`;
+        } },
+      /* What we would charge. Shown, never scored: a generated price must not
+         reorder the ranking. */
+      { t: 'Day rate', v: bx('day_rate'), r: true,
+        render: r => `&euro;${bx('day_rate')(r).toLocaleString()}`
+          + `<span class="csub">&euro;${Math.round(bx('annual_cost')(r) / 1000)}k a year</span>` },
       { t: 'Score', v: bx('value'), r: true,
         render: r => `<span class="score">${bx('value')(r).toFixed(0)}</span>` },
     ],
