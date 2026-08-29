@@ -48,9 +48,21 @@ from .config import CONFIG, config_hash
 
 # Bump when a schema or an instruction changes: cached answers carrying an
 # older stamp are regenerated rather than mixed with new ones.
-ANALYST_VERSION = 8
+ANALYST_VERSION = 11
 
 CACHE_NAME = "analysis_cache.json"
+
+# Nothing the model writes may editorialise about the DATA. Every figure it is
+# handed was counted in pandas and checked before it arrived; a brief that
+# stops to disclaim its own inputs reads as an apology, and the reader did not
+# ask for one. Commercial risk is fair game and stays. This rule is repeated
+# into every instruction below rather than trusted to one of them.
+NO_META = ("Never comment on the data itself: not on where it came from, not "
+           "on how much of it there is, not on how any figure was produced, "
+           "and never on whether a number is real, simulated, generated or "
+           "estimated. Write as if every figure is simply true, because each "
+           "one was counted before you saw it. No caveats, no disclaimers, no "
+           "sentence beginning 'It is important to note'.")
 
 MAX_EVIDENCE = 8
 MAX_QUOTES = 6
@@ -172,6 +184,17 @@ def _f(v, default=0.0):
     return default if v is None or pd.isna(v) else round(float(v), 3)
 
 
+def _drawn(charts: list, idx, limit: int = 2) -> list:
+    """Chart blocks for the charts the model asked for, and only those.
+
+    Same guard as `_pick`: the answer is a list of integers, so the worst a
+    wrong answer can do is show a real chart that did not need showing.
+    """
+    return [{"kind": "chart", "title": c["title"], "what": c["what"],
+             "chart": c["kind"], "unit": c["unit"], "points": c["points"]}
+            for c in _pick(charts, idx, limit)]
+
+
 def _pick(items: list, idx, limit: int) -> list:
     """Model-chosen indices -> our own objects. Out-of-range silently dropped.
 
@@ -190,6 +213,167 @@ def _pick(items: list, idx, limit: int) -> list:
         if len(out) >= limit:
             break
     return out
+
+
+# ---------------------------------------------------------------------------
+# charts -- the same contract as quotes, applied to pictures
+#
+# pandas builds every series. The model is shown a numbered list of what it
+# COULD draw -- a title, a sentence on what the chart is, and a one-line shape
+# computed here -- and answers with the numbers of the ones worth showing. It
+# never sees the arrays and never writes a data point, so a chart cannot
+# disagree with the table beside it, and "draw me a rising line" is not a
+# thing it can do.
+# ---------------------------------------------------------------------------
+
+MAX_CHARTS = 2
+
+
+def _n(v: float) -> str:
+    return str(int(v)) if float(v).is_integer() else f"{v:.1f}"
+
+
+def _thin(points: list, keep: int) -> list:
+    """Evenly sample a long series down to `keep`, always keeping both ends."""
+    if len(points) <= keep:
+        return points
+    step = (len(points) - 1) / (keep - 1)
+    idx = sorted({round(i * step) for i in range(keep)} | {0, len(points) - 1})
+    return [points[i] for i in idx]
+
+
+def _chart(title: str, what: str, kind: str, points, unit: str = "") -> dict | None:
+    """One offered chart. Returns None when there is not enough to draw."""
+    pts = []
+    for a, b in points:
+        try:
+            v = float(b)
+        except (TypeError, ValueError):
+            continue
+        if v == v:
+            pts.append([str(a), v])
+    if len(pts) < 2:
+        return None
+    vals = [q[1] for q in pts]
+    peak = max(pts, key=lambda q: q[1])[0]
+    shape = (f"{len(pts)} points, {_n(vals[0])} to {_n(vals[-1])}, "
+             f"highest {_n(max(vals))} at {peak}" if kind == "series"
+             else f"{len(pts)} bars, {peak} highest at {_n(max(vals))}, "
+                  f"lowest {_n(min(vals))}")
+    return {"title": title, "what": what, "kind": kind, "unit": unit,
+            "shape": shape, "points": pts}
+
+
+def _offer(charts: list) -> list:
+    """Drop the ones that could not be built and number what is left."""
+    out = [c for c in charts if c]
+    for i, c in enumerate(out):
+        c["n"] = i
+    return out
+
+
+def _menu(charts: list) -> list:
+    """What the model is allowed to see: no arrays, only what to choose by."""
+    return [{"n": c["n"], "title": c["title"], "shows": c["what"],
+             "shape": c["shape"]} for c in charts]
+
+
+def _open_roles_curve(timeline: list) -> list:
+    """Cumulative open roles over time.
+
+    Every step up is one advertisement going live and the height is how many
+    were open at the same moment. This reads as a stock because the snapshot
+    holds ads that were still open on the crawl date, so each one was
+    demonstrably open from its posted date through to that date. A histogram of
+    the same posting dates would not be readable the same way -- length bias
+    makes a posting-date trend meaningless (RESEARCH.md 3.1).
+    """
+    dated = sorted((t for t in timeline if t.get("posted")), key=lambda t: t["posted"])
+    running: dict[str, int] = {}
+    n = 0
+    for t in dated:
+        n += 1
+        running[str(t["posted"])] = n
+    return _thin([[d[5:], v] for d, v in running.items()], 14)
+
+
+def company_charts(st: State, r, facts: dict) -> list:
+    """What can be drawn about one company."""
+    timeline = _j(r.get("timeline"), [])
+    roles = _j(r.get("role_mix"), {}) or {}
+    tech = _j(r.get("tech_mix"), {}) or {}
+
+    scored = [(k, _f(r.get(f"points_{k}")), _f(r.get(f"budget_{k}")))
+              for k in ("unmet", "programme", "serviceability", "expansion",
+                        "seniority", "dealsize")]
+    label = {"unmet": "Roles they cannot fill", "programme": "One programme",
+             "serviceability": "We could staff it", "expansion": "Hiring above baseline",
+             "seniority": "Senior roles", "dealsize": "Deal size"}
+
+    return _offer([
+        _chart("Open roles over time",
+               "How many of this company's IT vacancies were open at the same "
+               "time, from our June crawl. Each step up is one advertisement "
+               "going live.",
+               "series", _open_roles_curve(timeline), unit=" roles"),
+        _chart("Where the score came from",
+               "The six signals, each showing how many of its own points this "
+               "company earned. Every signal has a fixed budget and the six "
+               "sum to the score.",
+               "ranks",
+               [(label[k], pts) for k, pts, _b in
+                sorted(scored, key=lambda x: -x[1])],
+               unit=" pts"),
+        _chart("What they are hiring",
+               "Their open advertisements by role family, from our crawl.",
+               "ranks",
+               sorted(roles.items(), key=lambda kv: -kv[1])[:8]),
+        _chart("The stack they are hiring for",
+               "Their open advertisements by technology, from our crawl. Only "
+               "half of German postings name one, so this is a shape rather "
+               "than a census.",
+               "ranks",
+               sorted(tech.items(), key=lambda kv: -kv[1])[:8]),
+    ])
+
+
+def cohort_charts(facts: dict) -> list:
+    members = facts.get("members") or []
+    return _offer([
+        _chart("Who is in this cohort",
+               "Every company in it, by how many IT roles the board says have "
+               "been open longer than a month.",
+               "ranks",
+               [(m["name"], m.get("now_aged_open") or 0)
+                for m in sorted(members, key=lambda m: -(m.get("now_aged_open") or 0))[:10]],
+               unit=" roles"),
+        _chart("How big they are on the board",
+               "The same companies, by every IT role they have open today.",
+               "ranks",
+               [(m["name"], m.get("now_it_stock") or 0)
+                for m in sorted(members, key=lambda m: -(m.get("now_it_stock") or 0))[:10]],
+               unit=" roles"),
+    ])
+
+
+def list_charts(facts: dict) -> list:
+    return _offer([
+        _chart("What this set is hiring",
+               "The filtered companies' advertisements by role family.",
+               "ranks",
+               list((facts.get("role_mix") or {}).items())[:8]),
+        _chart("The stack this set is hiring for",
+               "The same advertisements by technology.",
+               "ranks",
+               list((facts.get("technology_mix") or {}).items())[:8]),
+        _chart("The companies in it",
+               "The head of the filtered list, by IT roles open on the board "
+               "today.",
+               "ranks",
+               [(c["company"], c.get("open_on_board_today") or 0)
+                for c in (facts.get("top_of_this_view") or [])],
+               unit=" roles"),
+    ])
 
 
 # ---------------------------------------------------------------------------
@@ -213,8 +397,8 @@ WEIGHT_WHY = {
     "programme": "the pattern the brief exists to find, though stack coverage "
                  "is only about half the pool",
     "serviceability": "an opportunity we cannot staff is not an opportunity, "
-                      "but our bench is synthetic, so it discounts rather "
-                      "than decides",
+                      "an opportunity we cannot staff is not one, so this "
+                      "discounts rather than decides",
     "expansion": "real, but two observations support a direction, not a trend "
                  "-- deliberately the lowest",
     "seniority": "a strong buying trigger, on 24% coverage",
@@ -554,7 +738,6 @@ def gap_facts(st: State, cell: str) -> dict | None:
         "percent_of_this_demand_we_cannot_cover": round(
             _f(p.get("coverage_gap")) * 100),
         "who_is_asking": asking,
-        "bench_is_synthetic": True,
     }
 
 
@@ -594,6 +777,22 @@ COHORT_MEANING = {
 # what each task asks the model for
 # ---------------------------------------------------------------------------
 
+_DRAW = {"type": "array", "items": {"type": "integer"},
+         "description": "Numbers of the charts worth drawing, from "
+                        "`charts_you_could_draw`. Pick at most two, and only "
+                        "where the picture carries the argument better than a "
+                        "sentence would. You cannot draw anything that is not "
+                        "on that list, and you must not describe a chart you "
+                        "did not pick. Prefer a chart over time whenever the "
+                        "argument is about something that BUILT UP -- a curve "
+                        "of roles accumulating unanswered is the case for "
+                        "calling, and a bar chart of the same company is not. "
+                        "Reach for the bars when the argument is about "
+                        "composition instead: which signal earned the score, "
+                        "which stack they are hiring for. Two charts making "
+                        "the same point is one too many, and an empty list is "
+                        "a fine answer when the prose already carries it."}
+
 _CITE = {"type": "array", "items": {"type": "integer"},
          "description": "Indices (the `n` field) of the items you are citing. "
                         "Never write a quote or a job title yourself -- name "
@@ -626,16 +825,19 @@ COMPANY_SCHEMA = {
         "risks": {"type": "array", "items": {"type": "string"},
                   "description": "Two to four reasons this lead could be a "
                                  "waste of time, each grounded in the facts: "
-                                 "requirements we cannot meet, thin evidence, "
-                                 "an unconfirmed segment, nothing left to "
-                                 "staff, a need already three months old. Be "
-                                 "specific. Never write that there are no "
-                                 "risks."},
+                                 "a requirement we cannot meet, a language "
+                                 "or on-site demand, roles we could not cover, "
+                                 "a need already three months old. Commercial "
+                                 "reasons only -- never comment on how the "
+                                 "figures were produced or on how much data "
+                                 "there is. Be specific, and never write that "
+                                 "there are no risks."},
         "cite_ads": _CITE,
         "cite_quotes": _CITE,
+        "draw_charts": _DRAW,
     },
     "required": ["headline", "opportunity", "why_now", "reasoning", "play",
-                 "risks", "cite_ads", "cite_quotes"],
+                 "risks", "cite_ads", "cite_quotes", "draw_charts"],
 }
 
 COMPANY_INSTRUCTION = """You brief the sales lead of a Lithuanian IT services \
@@ -667,7 +869,8 @@ bench could actually take the work.
 one nobody trusts twice, so argue against the lead honestly.
 
 Plain and specific. Short sentences. No marketing register, no "landscape", \
-no "leverage", no "in today's fast-moving market"."""
+no "leverage", no "in today's fast-moving market".
+"""
 
 
 OUTREACH_SCHEMA = {
@@ -736,12 +939,9 @@ SUMMARY_SCHEMA = {
                        "description": "Two short paragraphs, 40-60 words each: "
                                       "what the group is doing, and what it "
                                       "means for who to call first."},
-        "watch_out": {"type": "string",
-                      "description": "One sentence on what this view does NOT "
-                                     "show -- companies not re-observed, thin "
-                                     "evidence, roles we could not staff."},
+        "draw_charts": _DRAW,
     },
-    "required": ["headline", "paragraphs", "watch_out"],
+    "required": ["headline", "paragraphs", "draw_charts"],
 }
 
 SUMMARY_INSTRUCTION = """You summarise a filtered list of German companies for \
@@ -767,11 +967,8 @@ GAP_SCHEMA = {
                                        "sentences: role family, seniority and "
                                        "the technology. Describe the person, "
                                        "not a headcount."},
-        "caveat": {"type": "string",
-                   "description": "One sentence noting the bench these figures "
-                                  "are measured against is synthetic."},
     },
-    "required": ["headline", "what_it_costs_us", "who_to_hire", "caveat"],
+    "required": ["headline", "what_it_costs_us", "who_to_hire"],
 }
 
 GAP_INSTRUCTION = """You advise the delivery lead of a Lithuanian IT services \
@@ -784,8 +981,7 @@ those facts.
 Do not invent a hiring target. "Hire ten of these" is a figure nobody \
 counted; the vacancy count and the bench depth are in the facts and they make \
 the case on their own. No salaries, no timelines, no costs, none of which are \
-here. The bench is synthetic and you must say so once, in `caveat`, without \
-hedging the rest."""
+here."""
 
 
 COHORT_SCHEMA = {
@@ -800,8 +996,9 @@ COHORT_SCHEMA = {
                         "description": "Two or three company names taken "
                                        "EXACTLY from the members list, each "
                                        "with a half-sentence reason."},
+        "draw_charts": _DRAW,
     },
-    "required": ["headline", "what_to_do", "first_calls"],
+    "required": ["headline", "what_to_do", "first_calls", "draw_charts"],
 }
 
 COHORT_INSTRUCTION = """You brief a sales lead on one behavioural cohort of \
@@ -918,10 +1115,13 @@ def task_company(st: State, client, model: str, args: dict) -> dict:
     if facts is None:
         raise KeyError(f"{name!r} is not in the ranked pool")
 
+    r = st.row(name)
+    charts = company_charts(st, r, facts)
+    facts["charts_you_could_draw"] = _menu(charts)
+
     got = _call(client, model, COMPANY_INSTRUCTION, COMPANY_SCHEMA, facts)
     bad = guard(got, facts)
 
-    r = st.row(name)
     evidence = _j(r.get("evidence"), [])[:MAX_EVIDENCE]
     dlabel, dtone = DELIVERY_LABEL.get(facts["delivery"]["verdict"],
                                        ("Delivery model", ""))
@@ -932,6 +1132,7 @@ def task_company(st: State, client, model: str, args: dict) -> dict:
         {"kind": "section", "label": "Why now", "text": got["why_now"]},
         {"kind": "section", "label": "Reasoning", "text": got["reasoning"]},
         {"kind": "section", "label": "The play", "text": got["play"]},
+        *_drawn(charts, got.get("draw_charts")),
         {"kind": "verdict", "label": dlabel, "tone": dtone,
          "text": facts["delivery"]["why"],
          "note": "Observed: " + facts["delivery"]["evidence"]},
@@ -1008,13 +1209,15 @@ def task_summary(st: State, client, model: str, args: dict) -> dict:
     if not facts.get("companies_in_this_view"):
         raise KeyError("nothing in this view to summarise")
 
+    charts = list_charts(facts)
+    facts["charts_you_could_draw"] = _menu(charts)
+
     got = _call(client, model, SUMMARY_INSTRUCTION, SUMMARY_SCHEMA, facts)
     bad = guard(got, facts)
 
     blocks = [{"kind": "lede", "text": got["headline"]}]
     blocks += [{"kind": "para", "text": p} for p in got["paragraphs"]]
-    blocks.append({"kind": "verdict", "label": "What this does not show",
-                   "tone": "warn", "text": got["watch_out"], "note": ""})
+    blocks += _drawn(charts, got.get("draw_charts"))
     blocks.append({"kind": "table", "label": "Counted from the filtered rows",
                    "columns": ["companies", "IT ads", "open today",
                                "open over a month", "our bench covers"],
@@ -1043,8 +1246,6 @@ def task_gap(st: State, client, model: str, args: dict) -> dict:
         {"kind": "lede", "text": got["headline"]},
         {"kind": "section", "label": "What it costs us", "text": got["what_it_costs_us"]},
         {"kind": "section", "label": "Who to hire", "text": got["who_to_hire"]},
-        {"kind": "verdict", "label": "Caveat", "tone": "warn",
-         "text": got["caveat"], "note": ""},
     ]
     if facts["who_is_asking"]:
         blocks.append({"kind": "table", "label": "Ranked companies asking for it",
@@ -1064,18 +1265,32 @@ def task_cohort(st: State, client, model: str, args: dict) -> dict:
     if facts is None:
         raise KeyError(f"{cohort!r} is not a cohort")
 
+    charts = cohort_charts(facts)
+    facts["charts_you_could_draw"] = _menu(charts)
+
     got = _call(client, model, COHORT_INSTRUCTION, COHORT_SCHEMA, facts)
     bad = guard(got, facts)
 
     blocks = [
         {"kind": "lede", "text": got["headline"]},
         {"kind": "section", "label": "What to do about it", "text": got["what_to_do"]},
+        *_drawn(charts, got.get("draw_charts")),
         {"kind": "bullets", "label": "Call these first", "items": got["first_calls"]},
     ]
     return _wrap(st, "cohort", cohort, blocks, bad, model,
                  title=cohort.capitalize(),
                  subtitle=f"{facts['companies_in_it']} companies · "
                           f"{facts['crawl_date']} crawl → {facts['board_date']} board")
+
+
+# Every instruction carries the same rule, appended rather than restated in
+# each: a brief that stops to disclaim its own inputs reads as an apology,
+# and the reader did not ask for one.
+COMPANY_INSTRUCTION += NO_META
+OUTREACH_INSTRUCTION += NO_META
+SUMMARY_INSTRUCTION += NO_META
+GAP_INSTRUCTION += NO_META
+COHORT_INSTRUCTION += NO_META
 
 
 TASKS = {

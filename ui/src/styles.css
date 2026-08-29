@@ -846,3 +846,102 @@ thead th.has-help{cursor:help}
    into it and get the width back as resolution */
 .tw.lead #ra-body td.nm,.tw.lead thead th:nth-child(2){width:46%}
 .tw.lead #ra-body td.sg,.tw.lead thead th:nth-child(3){width:32%}
+
+/* ---------- charts inside an AI answer ----------
+   The drawer is 620px of column, so a chart in it has to earn its height:
+   no legend, no gridline chatter, the caption underneath rather than beside,
+   and the same tokens as every other chart on the page so an answer does not
+   look like it came from a different product. */
+.ai-chart{margin-top:var(--s4)}
+.ai-chart .rc{margin:var(--s2) -6px 0}
+.ai-chart .evhead .sfx{display:block;margin:3px 0 0}
+.ai-cap{font:400 12px/1.55 var(--sans);color:var(--muted);margin:var(--s2) 0 0;max-width:64ch}
+
+/* ==========================================================================
+   MOVEMENT
+   Everything here is entrance only: a thing arrives, then it is still. Nothing
+   loops, nothing pulses, nothing draws the eye away from a number a second
+   time. All of it is transform and opacity -- the two properties the compositor
+   can animate without touching layout -- and all of it is off for anyone who
+   has asked their machine to stop moving.
+   ========================================================================== */
+
+@keyframes rise{from{opacity:0;transform:translate3d(0,14px,0)}to{opacity:1;transform:none}}
+@keyframes riseSm{from{opacity:0;transform:translate3d(0,8px,0)}to{opacity:1;transform:none}}
+@keyframes grow{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+@keyframes slabIn{from{opacity:0;transform:translate3d(0,10px,0) scale(.985)}
+  to{opacity:1;transform:none}}
+@keyframes shimmer{from{background-position:-320px 0}to{background-position:320px 0}}
+@keyframes drawerIn{from{opacity:0;transform:translate3d(34px,0,0)}to{opacity:1;transform:none}}
+
+/* A tab arrives. The screens stay mounted and only toggle display, so going
+   from none to block restarts this for free -- no state, no library. */
+.screen.on{animation:rise .34s cubic-bezier(.22,.9,.28,1) both}
+
+/* The headline slab lands first and the table follows it in, which is the
+   order you read them in. */
+.screen.on .kpis{animation:slabIn .42s cubic-bezier(.22,.9,.28,1) both}
+.screen.on > .controls,.screen.on > details.adv{animation:riseSm .4s .06s ease-out both}
+.screen.on .tw{animation:rise .44s .1s cubic-bezier(.22,.9,.28,1) both}
+
+/* Rows cascade. Capped at the first fourteen: past that the reader has
+   started scrolling and a delayed row is a row that is missing. Keyed by
+   identity in React, so a re-sort moves nodes rather than remounting them and
+   this does not re-fire on every slider drag. */
+.tw.lead tbody tr{animation:riseSm .34s both}
+.tw.lead tbody tr:nth-child(1){animation-delay:.10s}
+.tw.lead tbody tr:nth-child(2){animation-delay:.14s}
+.tw.lead tbody tr:nth-child(3){animation-delay:.18s}
+.tw.lead tbody tr:nth-child(4){animation-delay:.22s}
+.tw.lead tbody tr:nth-child(5){animation-delay:.26s}
+.tw.lead tbody tr:nth-child(6){animation-delay:.30s}
+.tw.lead tbody tr:nth-child(7){animation-delay:.34s}
+.tw.lead tbody tr:nth-child(8){animation-delay:.38s}
+.tw.lead tbody tr:nth-child(n+9){animation-delay:.42s}
+
+/* Every bar draws itself from its own left edge. The width is inline-styled
+   from the data, so this scales the painted bar rather than animating width --
+   which would be a layout pass per frame, per bar, on a hundred rows. */
+.sigrow .t i,.mixrow .t i,.bf-bar .fill{transform-origin:left center;
+  animation:grow .5s .12s cubic-bezier(.22,.9,.28,1) both}
+
+/* The score, and the KPI numbers the counter is running on. */
+.scorecell .scoren{animation:riseSm .4s .16s ease-out both}
+.kpi .v{animation:riseSm .44s .1s ease-out both}
+
+/* ---------- the drawer ---------- */
+.ai-drawer{animation:drawerIn .3s cubic-bezier(.22,.9,.28,1) both}
+.ai-body > *{animation:riseSm .34s both}
+.ai-body > *:nth-child(1){animation-delay:.04s}
+.ai-body > *:nth-child(2){animation-delay:.08s}
+.ai-body > *:nth-child(3){animation-delay:.12s}
+.ai-body > *:nth-child(n+4){animation-delay:.16s}
+
+/* ---------- the skeleton ----------
+   The shape of the answer that is coming: a headline, three sections, a chart.
+   A bar sweeping left to right across each line, staggered down the column so
+   the whole thing reads as one wave rather than six independent flashes. */
+.ai-skel{display:flex;flex-direction:column;gap:var(--s2);animation:none}
+.sk{display:block;border-radius:6px;
+  background:linear-gradient(90deg,var(--paper-2) 0%,#EDEDE8 45%,var(--paper-2) 90%);
+  background-size:320px 100%;animation:shimmer 1.15s linear infinite}
+.sk-lede{height:19px;width:100%}
+.sk-lede.short{height:19px;width:62%;margin-bottom:var(--s3)}
+.sk-sec{display:flex;flex-direction:column;gap:7px;margin-top:var(--s4)}
+.sk-head{height:9px;width:112px;border-radius:var(--pill)}
+.sk-line{height:12px;width:100%}
+.sk-line.short{width:74%}
+.sk-chart{height:150px;width:100%;margin-top:var(--s5);border-radius:var(--r-sm)}
+.sk-sec:nth-child(3) .sk{animation-delay:.1s}
+.sk-sec:nth-child(4) .sk{animation-delay:.2s}
+.sk-sec:nth-child(5) .sk{animation-delay:.3s}
+.sk-note{font:400 12px/1.6 var(--sans);color:var(--muted-2);margin-top:var(--s4);
+  max-width:52ch;animation:riseSm .5s .25s ease-out both}
+
+/* ---------- and none of it, for anyone who asked ---------- */
+@media (prefers-reduced-motion:reduce){
+  .screen.on,.screen.on .kpis,.screen.on > .controls,.screen.on > details.adv,
+  .screen.on .tw,.tw.lead tbody tr,.sigrow .t i,.mixrow .t i,.bf-bar .fill,
+  .scorecell .scoren,.kpi .v,.ai-drawer,.ai-body > *,.sk-note{animation:none}
+  .sk{animation:none;background:var(--paper-2)}
+}

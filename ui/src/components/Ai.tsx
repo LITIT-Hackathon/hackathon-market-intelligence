@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+import { Ranks, Series, type BarRow } from "./Chart";
 
 /* The AI layer, in one component.
 
@@ -25,7 +26,11 @@ export type AiBlock =
   | { kind: "bullets"; label: string; tone?: string; items: string[] }
   | { kind: "quotes"; label: string; items: AiQuote[] }
   | { kind: "links"; label: string; items: AiLink[] }
-  | { kind: "table"; label: string; columns: string[]; rows: (string | number)[][] };
+  | { kind: "table"; label: string; columns: string[]; rows: (string | number)[][] }
+  /* Drawn from OUR arrays. The model chose which chart to show, by number;
+     it never saw the points and could not have written one. */
+  | { kind: "chart"; title: string; what: string; chart: "series" | "ranks";
+      unit?: string; points: [string, number][] };
 
 export interface AiReply {
   task: string;
@@ -116,6 +121,22 @@ function Blocks({ blocks }: { blocks: AiBlock[] }) {
                 ))}
               </div>
             );
+          case "chart": {
+            /* pre-sorted descending in pandas, so the first bar is the driver
+               and gets the ink; the rest stay iris */
+            const rows: BarRow[] = b.points.map(
+              ([k, v], n) => [k, v, b.chart === "ranks" && n === 0 ? "acc" : ""]);
+            return (
+              <div className="ai-sec ai-chart" key={i}>
+                <p className="evhead">{b.title}
+                  <span className="sfx">counted in pandas &mdash; the model chose the chart, not the numbers</span></p>
+                {b.chart === "series"
+                  ? <Series rows={rows} height={200} unit={b.unit} areaLabel="open roles" />
+                  : <Ranks rows={rows} layout="vertical" unit={b.unit} labelWidth={148} />}
+                <p className="ai-cap">{b.what}</p>
+              </div>
+            );
+          }
           case "links":
             return (
               <div className="ai-sec" key={i}>
@@ -170,8 +191,32 @@ const KIND: Record<string, string> = {
    container and read as broken. A drawer is portalled to <body>, so no
    `overflow` above it can cut it off, it scrolls on its own, and the table
    underneath keeps the size it was designed at. */
-function Drawer({ out, busy, onRewrite, onClose }: {
-  out: AiReply; busy: boolean; onRewrite: () => void; onClose: () => void;
+/* The shape of an answer, before there is one. Not a spinner: a spinner says
+   "something is happening", this says "a headline, three sections and a chart
+   are on their way", which is the honest promise and makes the wait shorter. */
+function Skeleton() {
+  return (
+    <div className="ai-skel" aria-live="polite" aria-label="Reading the evidence">
+      <span className="sk sk-lede" />
+      <span className="sk sk-lede short" />
+      {[0, 1, 2].map((i) => (
+        <div className="sk-sec" key={i}>
+          <span className="sk sk-head" />
+          <span className="sk sk-line" />
+          <span className="sk sk-line" />
+          <span className="sk sk-line short" />
+        </div>
+      ))}
+      <span className="sk sk-chart" />
+      <p className="sk-note">Reading the evidence &mdash; the figures are counted
+        first, then the model is handed only those.</p>
+    </div>
+  );
+}
+
+function Drawer({ out, busy, pending, onRewrite, onClose }: {
+  out: AiReply | null; busy: boolean; pending: ReactNode;
+  onRewrite: () => void; onClose: () => void;
 }) {
   useEffect(() => {
     const key = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
@@ -187,30 +232,34 @@ function Drawer({ out, busy, onRewrite, onClose }: {
   return createPortal(
     <div className="ai-scrim" onClick={onClose}>
       <aside className="ai-drawer" role="dialog" aria-modal="true"
-        aria-label={`${KIND[out.task] || "Analysis"}: ${out.title}`}
+        aria-label={out ? `${KIND[out.task] || "Analysis"}: ${out.title}` : "Working"}
         onClick={(e) => e.stopPropagation()}>
         <header className="ai-head">
           <div>
-            <p className="label">{KIND[out.task] || "Analysis"}</p>
-            <h4>{out.title}</h4>
-            <p className="ai-sub">{out.subtitle}</p>
+            <p className="label">{out ? (KIND[out.task] || "Analysis") : "Working"}</p>
+            <h4>{out ? out.title : pending}</h4>
+            <p className="ai-sub">{out ? out.subtitle : "counting the evidence"}</p>
           </div>
           <div className="ai-actions">
-            {out.cached && (
+            {out?.cached && (
               <span className="tag" title="Generated earlier and stored on disk, so this cost nothing and works offline">cached</span>
             )}
-            <button className="ai-link" onClick={onRewrite} disabled={busy}>
-              {busy ? "…" : "Rewrite"}
-            </button>
+            {out && (
+              <button className="ai-link" onClick={onRewrite} disabled={busy}>
+                {busy ? "…" : "Rewrite"}
+              </button>
+            )}
             <button className="ai-x" onClick={onClose} aria-label="Close">×</button>
           </div>
         </header>
 
         <div className="ai-body">
-          <Blocks blocks={out.blocks} />
-          <p className="ai-foot">{out.footer}. Every figure above was counted in
-            pandas before the model saw it; quotes and links are printed from our
-            own data, not written by the model.</p>
+          {out ? (
+            <>
+              <Blocks blocks={out.blocks} />
+              <p className="ai-foot">{out.footer}.</p>
+            </>
+          ) : <Skeleton />}
         </div>
       </aside>
     </div>,
@@ -255,6 +304,13 @@ export function AiButton({ task, args, label, hint, small }: ButtonProps) {
       .finally(() => setBusy(false));
   }, [task, args]);
 
+  /* While it works the drawer is titled by what it is about, not by the button
+     that was pressed: "Deichmann SE" is what you are waiting for, "Write the
+     full brief" is what you already did. */
+  const a = args as Record<string, unknown>;
+  const subject = [a.company, a.cohort, a.cell, a.label].find(
+    (x): x is string => typeof x === "string" && !!x) || label;
+
   /* No analyst, no button. The static page is honest about what it cannot do. */
   if (!live) return null;
 
@@ -274,9 +330,9 @@ export function AiButton({ task, args, label, hint, small }: ButtonProps) {
         </p>
       )}
 
-      {out && (
-        <Drawer out={out} busy={busy} onRewrite={() => run(true)}
-          onClose={() => setOut(null)} />
+      {(out || busy) && (
+        <Drawer out={out} busy={busy} pending={subject} onRewrite={() => run(true)}
+          onClose={() => { setOut(null); setBusy(false); }} />
       )}
     </div>
   );

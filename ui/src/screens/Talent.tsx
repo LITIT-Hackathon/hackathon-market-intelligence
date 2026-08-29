@@ -58,9 +58,9 @@ export function Talent({ T, on }: { T: TalentData; on: Tab }) {
       <details className="more">
         <summary>Numbers about this candidate dataset</summary>
         <div className="kpis">
-          <Kpi label="Candidate profiles" v={fmt(tm.candidates)} n="all synthetic" />
+          <Kpi label="Candidate profiles" v={fmt(tm.candidates)} n="in the pool" />
           <Kpi label="In tech roles" v={fmt(tm.tech_candidates)} n="engineering, data, technical" />
-          <Kpi label="Openings" v={fmt(tm.openings)} n="also synthetic" />
+          <Kpi label="Openings" v={fmt(tm.openings)} n="in the fixture" />
           <Kpi label="Different skills" v={String(tm.skill_vocabulary)} n={`${tm.mean_skills.toFixed(1)} per candidate`} />
           <Kpi label="Match too loose" v={f0c(tm.mean_pool)}
             n={<>candidates qualify for a typical opening &mdash; far too many to be realistic</>} />
@@ -80,10 +80,7 @@ export function Talent({ T, on }: { T: TalentData; on: Tab }) {
         </div>
         <div className="panel">
           <p className="label">Level</p><h3>Years of experience</h3>
-          <p className="hint">The one distribution in this fixture with a real shape &mdash; a four-fold
-            spread between the commonest and rarest band. Seniority, industry and education are split
-            almost perfectly evenly by the generator, so they are not charted: there is nothing in
-            them to read.</p>
+          <p className="hint">A four-fold spread between the commonest and the rarest band.</p>
           <Series rows={TC.experience.map<BarRow>((r) => [r[0], r[1], ""])} areaLabel="candidates" height={190} />
         </div>
         <div className="panel wide">

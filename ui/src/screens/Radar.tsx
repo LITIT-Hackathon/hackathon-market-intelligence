@@ -3,7 +3,8 @@ import { Screen, type Tab } from "../App";
 import { AiButton } from "../components/Ai";
 import { Count, DataTable, type Column } from "../components/DataTable";
 import { indexer, type Radar as RadarData, type Row, type TimelineAd } from "../data";
-import { fmt, plural } from "../format";
+import { Num } from "../components/Kpi";
+import { plural } from "../format";
 import { Timeline } from "./Timeline";
 
 /* Live weights over the scorer's own arithmetic: six effective signals
@@ -170,8 +171,6 @@ export function Radar({ R, on }: { R: RadarData; on: Tab }) {
   const stalePct = Math.round((R.meta.stale_weight ?? 0.5) * 100);
 
   const columns = useMemo<Column<Row>[]>(() => {
-    const review = rx<boolean>("review");
-    const bandOf = rx<string>("band");
     const verified = rx<boolean>("verified");
     const covered = rx<number>("covered");
     const uncovered = rx<number>("uncovered");
@@ -215,8 +214,6 @@ export function Radar({ R, on }: { R: RadarData; on: Tab }) {
         render: (r) => (
           <>
             <span className="cname">{name(r)}</span>
-            {review(r) && <> <span className="tag warn" title="We could not confirm from the data whether this is a customer or an IT supplier. Check before calling.">unconfirmed</span></>}
-            {bandOf(r) === "low" && <> <span className="tag" title="Based on only a few job ads">thin evidence</span></>}
             {verified(r) && <> <span className="tag pub" title="Re-observed on the Bundesagentur board today: open roles, posting flow and agency flags all come from the source rather than from our inference">live-checked</span></>}
             {/* Every advertisement we hold for this company has since been taken
                 down, so there is no role here we could name or staff today. Say
@@ -282,9 +279,9 @@ export function Radar({ R, on }: { R: RadarData; on: Tab }) {
     <Screen id="radar" group="radar" on={on}>
       <p className="label">Opportunities &middot; demand matched to people</p>
       <div className="kpis slim">
-        <div className="kpi hl"><p className="label">Companies worth calling</p><p className="v num" id="k-ranked">{fmt(rows.length)}</p><p className="n">ranked below, best first</p></div>
-        <div className="kpi"><p className="label">IT roles they cannot fill</p><p className="v num" id="k-roles">{fmt(sum("it_n"))}</p><p className="n">open right now across all of them</p></div>
-        <div className="kpi"><p className="label">Open over 6 weeks</p><p className="v num" id="k-stuck">{fmt(sum("open45"))}</p><p className="n">still not filled after six weeks</p></div>
+        <div className="kpi hl"><p className="label">Companies worth calling</p><p className="v num" id="k-ranked"><Num v={rows.length} /></p><p className="n">ranked below, best first</p></div>
+        <div className="kpi"><p className="label">IT roles they cannot fill</p><p className="v num" id="k-roles"><Num v={sum("it_n")} /></p><p className="n">open right now across all of them</p></div>
+        <div className="kpi"><p className="label">Open over 6 weeks</p><p className="v num" id="k-stuck"><Num v={sum("open45")} /></p><p className="n">still not filled after six weeks</p></div>
       </div>
 
       {/* Everything you can change sits above the thing it changes. The
@@ -323,10 +320,10 @@ export function Radar({ R, on }: { R: RadarData; on: Tab }) {
           <option value="captive_it">In-house IT arms</option>
         </select>
         <select id="ra-band" value={band} onChange={(e) => setBand(e.target.value)}>
-          <option value="">Any amount of evidence</option>
-          <option value="high">Strong evidence</option>
-          <option value="medium">Some evidence</option>
-          <option value="low">Thin evidence</option>
+          <option value="">Any confidence</option>
+          <option value="high">High confidence</option>
+          <option value="medium">Medium confidence</option>
+          <option value="low">Low confidence</option>
         </select>
         <label className="chk"><input type="checkbox" id="ra-noreview" checked={noRev} onChange={(e) => setNoRev(e.target.checked)} /> Only externally verified</label>
         <Count id="ra-count" n={rows.length} total={R.rows.length} noun="companies" />

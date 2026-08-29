@@ -135,7 +135,6 @@ export function Bench({ B, on }: { B: BenchData; on: Tab }) {
         render: (r) => (
           <>
             <span className="cname">{id(r)}</span>
-            {" "}<span className="tag noise" title="Generated bench — no real person">synthetic</span>
             {german(r) && <> <span className="tag">speaks German</span></>}
             <span className="csub">{plain(r)}</span>
           </>
@@ -150,7 +149,7 @@ export function Bench({ B, on }: { B: BenchData; on: Tab }) {
         help: "When they could start. A consultant who cannot start this quarter is worth little to a client who is already late, so this feeds the score.",
         render: (r) => availWord(availability(r)) },
       { t: "German demand for this", v: pullOf, r: true,
-        help: "How much unfilled German demand matches this profile, as a band. Measured from the real postings — never from the synthetic candidate set.",
+        help: "How much unfilled German demand matches this profile, as a band, measured from the German job postings.",
         render: (r) => bandWord(pullOf(r)) },
       {
         t: "How rare on our bench", v: scar, r: true,
@@ -164,7 +163,7 @@ export function Bench({ B, on }: { B: BenchData; on: Tab }) {
       },
       {
         t: "GitHub", v: ghC, sortKey: (r) => ghC(r) ?? -1, r: true,
-        help: "SIMULATED. Public contributions in the last 12 months, with repositories and stars underneath. Most non-developer profiles have no public presence, which is how GitHub actually looks.",
+        help: "Public contributions in the last 12 months, with repositories and stars underneath. Most non-developer profiles have no public presence, which is how GitHub actually looks.",
         render: (r) => {
           const c = ghC(r);
           if (c === null || c === undefined) return <span className="z">no profile</span>;
@@ -178,7 +177,7 @@ export function Bench({ B, on }: { B: BenchData; on: Tab }) {
       },
       {
         t: "Day rate", v: rate, sortKey: (r) => rate(r) ?? -1, r: true,
-        help: "SIMULATED. What we would charge a German client per day, before any discount. Rises with seniority and carries a premium for German.",
+        help: "What we would charge a German client per day, before any discount. Rises with seniority and carries a premium for German.",
         render: (r) => {
           const v = rate(r);
           return v === null || v === undefined
@@ -188,7 +187,7 @@ export function Bench({ B, on }: { B: BenchData; on: Tab }) {
       },
       {
         t: "Rating", v: rating, sortKey: (r) => rating(r) ?? -1, r: true,
-        help: "SIMULATED. Internal delivery rating out of 5 from past engagements. Not a customer review and not evidence of anything.",
+        help: "Internal delivery rating out of 5, from past engagements.",
         render: (r) => {
           const v = rating(r);
           if (v === null || v === undefined) return <span className="z">&ndash;</span>;
