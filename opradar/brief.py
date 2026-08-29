@@ -135,20 +135,27 @@ def demand_mix(data_dir: Path) -> dict:
 def our_side(o: pd.DataFrame, data_dir: Path) -> dict:
     """What of that demand we could actually take, and what is closed to us.
 
-    Every key names its own unit. `placeable_total` used to be the count of
-    PEOPLE we could place; handed that name the narrator wrote "109.2 roles
-    placeable", which the number guard passed because the figure was real and
-    only the noun was invented. A key that says what it counts removes the
-    guess instead of policing it.
+    Every key names its own unit, and every one of them is a COUNT OF ROLES.
+
+    There used to be a `people_we_could_place` here, carrying the sum of
+    `placeable_w`. That is not a headcount: it is a weighted sum of age x match
+    credit, feeding the dealsize signal, and it is fractional for 60 of the 65
+    companies that have one. Handed a key with "people" in its name the
+    narrator duly wrote "109.2 people we could place", and the number guard
+    passed it because the figure was real and only the noun was invented.
+    Renaming it once was not enough -- the fix is to stop publishing a
+    weighted sum as if it were a number of humans.
+
+    Everything here is scoped to the companies that still have a live vacancy,
+    because a role we cannot name is not a role anyone can be placed into.
     """
     staffable = o[o["atoms_total"] > 0]
     out = {
         "companies_ranked": len(o),
         "companies_with_live_roles": int(len(staffable)),
         "companies_with_nothing_to_staff": int((o["atoms_total"] == 0).sum()),
-        "people_we_could_place": round(float(o["placeable_w"].fillna(0).sum()), 1),
-        "roles_our_bench_covers": int(o["atoms_covered"].fillna(0).sum()),
-        "roles_live_in_our_crawl": int(o["atoms_total"].fillna(0).sum()),
+        "roles_our_bench_covers": int(staffable["atoms_covered"].fillna(0).sum()),
+        "roles_live_in_our_crawl": int(staffable["atoms_total"].fillna(0).sum()),
     }
     # extraction is optional -- the briefing states blockers only if the
     # enrichment pass has actually run, never as an assumption

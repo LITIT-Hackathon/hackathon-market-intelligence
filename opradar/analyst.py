@@ -283,7 +283,14 @@ def company_facts(st: State, name: str) -> dict | None:
         "our_side": {
             "roles_we_hold_an_ad_for": _i(r.get("atoms_total")),
             "of_those_our_bench_covers": _i(r.get("atoms_covered")),
-            "people_we_could_place_at_once": _f(r.get("placeable_w")),
+            # deliberately no headcount here. `placeable_w` is a weighted sum
+            # of age x match credit feeding the dealsize signal, fractional for
+            # 60 of the 65 companies that have one -- handed a key with
+            # "people" in its name the model writes "18.6 people", and the
+            # number guard passes it because the figure is real and only the
+            # noun is invented. The roles above are the countable fact; how big
+            # a deal that is, is what `dealsize` says on the page.
+
             "skills_we_cannot_cover": _j(r.get("uncovered_families"), {}),
         },
         "citable_job_ads": citations,
@@ -491,7 +498,6 @@ def list_facts(st: State, names: list[str]) -> dict:
         "new_it_roles_in_28_days": _i(live["now_it_flow_28"].sum()),
         "roles_we_hold_an_ad_for": _i(sel["atoms_total"].sum()),
         "of_those_our_bench_covers": _i(sel["atoms_covered"].sum()),
-        "people_we_could_place": _f(sel["placeable_w"].sum()),
         "technology_mix": dict(sorted(tech.items(), key=lambda kv: -kv[1])[:10]),
         "role_mix": dict(sorted(roles.items(), key=lambda kv: -kv[1])[:8]),
     }
@@ -1011,12 +1017,12 @@ def task_summary(st: State, client, model: str, args: dict) -> dict:
                    "tone": "warn", "text": got["watch_out"], "note": ""})
     blocks.append({"kind": "table", "label": "Counted from the filtered rows",
                    "columns": ["companies", "IT ads", "open today",
-                               "open over a month", "we could place"],
+                               "open over a month", "our bench covers"],
                    "rows": [[facts["companies_in_this_view"],
                              facts["it_ads_we_hold_in_total"],
                              facts["open_on_the_board_today"],
                              facts["of_those_open_over_a_month"],
-                             facts["people_we_could_place"]]]})
+                             facts["of_those_our_bench_covers"]]]})
 
     key = hashlib.sha256("|".join(sorted(names)).encode()).hexdigest()[:16]
     return _wrap(st, "summary", key, blocks, bad, model,

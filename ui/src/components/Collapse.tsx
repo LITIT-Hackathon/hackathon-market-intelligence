@@ -38,7 +38,7 @@ function harvest(limit = MAX_WORDS): string {
       if (!el || blank.test(text)) continue;
       // skip our own furniture, and anything scrolled out of the viewport --
       // what falls should be what the reader can actually see
-      if (el.closest(".collapse,.navw,.text-rotate-sr-only")) continue;
+      if (el.closest(".collapse,nav,.text-rotate-sr-only")) continue;
       const r = el.getBoundingClientRect();
       if (!r.width || !r.height || r.bottom < 0 || r.top > window.innerHeight) continue;
       for (const raw of text.split(/\s+/)) {

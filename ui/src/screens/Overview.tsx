@@ -90,14 +90,11 @@ export function Overview({ data, on }: { data: Payload; on: Tab }) {
           <Ranks rows={perCapita ? regionRel : regionAbs} labelWidth={168} />
         </div>
         <div className="panel wide" style={{ order: 8 }}>
-          <p className="label">Careful</p><h3>Postings by month posted</h3>
-          <p className="hint">Last 18 months.</p>
+          <h3>Postings by month posted</h3>
+          <p className="hint">Last 18 months. This is a survival curve, not a demand curve &mdash;
+            the snapshot only holds postings still open on the crawl date, so older months look
+            small because those roles were filled.</p>
           <Series rows={C.months.map<BarRow>((r) => [r[0], r[1], ""])} every={3} areaLabel="postings" />
-          <div className="note"><b>This chart is a trap.</b> It looks like the market tripled, and it did not.
-            The snapshot only contains postings that were still <em>open</em> on the crawl date — older ones
-            are missing because they were <em>filled</em>. This is a survival curve, not a demand curve.
-            Real trend data has to come from repeated crawls or an explicit "posted in the last N days" filter.
-            It is shown here so nobody rebuilds it by accident.</div>
         </div>
       </div>
     </Screen>

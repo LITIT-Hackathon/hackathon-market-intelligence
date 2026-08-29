@@ -55,14 +55,6 @@ export function Talent({ T, on }: { T: TalentData; on: Tab }) {
   return (
     <Screen id="talent" group="people" on={on}>
       <p className="label">Talent &middot; supply side</p>
-      <div className="note"><b>Two things to know before reading any of this.</b>
-        {" "}The dataset is <em>synthetic and LLM-generated</em>. Most of its distributions are
-        near-uniform by construction, so they measure the generator rather than a labour market and
-        are not charted here &mdash; only the two that genuinely vary are. And it <em>does not join
-        to the German posting data</em>: only {tm.bridge_pct}% of its skill vocabulary has an
-        equivalent in our German extraction, covering {tm.bridge_coverage}% of German IT postings.
-        Use it to build and demo the matcher, not to claim anything about Germany.</div>
-
       <details className="more">
         <summary>Numbers about this candidate dataset</summary>
         <div className="kpis">

@@ -35,6 +35,8 @@ interface Props<R extends object> {
   expanded?: (r: R) => ReactNode;
   bodyId?: string;
   maxHeight?: string;
+  /** extra class on the scroll wrapper, for tables that ARE the page */
+  wrapClass?: string;
 }
 
 /* Rows are keyed by identity, not by any column: company names, for one, are
@@ -79,7 +81,8 @@ function cmp(x: unknown, y: unknown, dir: number): number {
     last either way, a header click on the sorted column flips it, paging
     resets on sort and clamps on filter. */
 export function DataTable<R extends object>(props: Props<R>) {
-  const { columns, rows, per = 100, rowClass, onRowClick, expanded, bodyId, maxHeight } = props;
+  const { columns, rows, per = 100, rowClass, onRowClick, expanded, bodyId,
+          maxHeight, wrapClass } = props;
   const [sort, setSort] = useState(Math.min(props.sort ?? 0, columns.length - 1));
   const [dir, setDir] = useState<1 | -1>(props.dir || -1);
   const [page, setPage] = useState(0);
@@ -114,7 +117,7 @@ export function DataTable<R extends object>(props: Props<R>) {
   const style: CSSProperties | undefined = maxHeight ? { maxHeight } : undefined;
   return (
     <>
-      <div className="tw" style={style} ref={tw}>
+      <div className={wrapClass ? `tw ${wrapClass}` : "tw"} style={style} ref={tw}>
         <table>
           <thead>
             <tr>

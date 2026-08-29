@@ -54,7 +54,7 @@ html::-webkit-scrollbar-thumb{background:#3D423F;background-clip:padding-box}
 .num{font-variant-numeric:tabular-nums}
 
 /* ---------- shell ---------- */
-header{background:var(--ink);color:#fff;padding:22px var(--pad) 26px}
+header{background:var(--ink);color:#fff;padding:22px var(--pad) 0}
 header>*{max-width:var(--maxw);margin-inline:auto}
 .bar{display:flex;align-items:flex-end;justify-content:space-between;gap:24px;flex-wrap:wrap}
 .brand{display:flex;align-items:baseline;gap:14px}
@@ -68,94 +68,36 @@ header>*{max-width:var(--maxw);margin-inline:auto}
 /* the trailing underscore is the last character of every string, so it rides
    in with the word; this is what keeps it the accent it has always been */
 .mark .text-rotate-word:last-child .text-rotate-element:last-child{color:var(--accent)}
-.bar .sub{font:500 11px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;
-  color:var(--muted-2);white-space:nowrap}
-/* the section you are in -- the job the folder tabs used to do */
-.bar .sub:before{content:"";display:inline-block;width:5px;height:5px;border-radius:50%;
-  background:var(--accent);margin-right:9px;vertical-align:middle;transform:translateY(-1px)}
 .stamp{display:flex;gap:7px;flex-wrap:wrap;justify-content:flex-end}
 .mchip{font:500 11px/1 var(--sans);color:var(--muted-2);background:var(--ink-2);
   border:1px solid #2E3230;border-radius:var(--pill);padding:7px 12px;white-space:nowrap}
 .mchip b{color:#fff;font-weight:600;font-variant-numeric:tabular-nums}
 
-/* ---------- the wheel navigation ----------
-   The folder tabs are gone; sections live on a wheel parked off the left
-   edge. Everything here is fixed-position furniture over the page, so it
-   costs the layout nothing and the content keeps the full measure.
-
-   `.navw` is a full-viewport, click-through layer; only the pieces that
-   need the pointer take it back. */
-.navw{position:fixed;inset:0;z-index:70;pointer-events:none;transition:opacity .18s}
-/* an open AI drawer owns the screen, so the rail steps out of its way */
-body:has(.ai-scrim) .navw{opacity:0;pointer-events:none}
-
-/* the hover trigger: a sliver of screen left of the content gutter. The rail
-   lives inside it, so landing on the rail is landing on the trigger. */
-.navw-edge{position:absolute;left:0;top:0;bottom:0;width:18px;pointer-events:auto}
-.navw.open .navw-edge{pointer-events:none}
-
-/* the rail, always parked so the wheel is discoverable without hovering */
-.navw-tab{position:absolute;left:0;top:50%;transform:translateY(-50%);
-  display:flex;flex-direction:column;align-items:center;gap:13px;
-  background:var(--ink);border:0;border-radius:0 var(--r-sm) var(--r-sm) 0;
-  padding:17px 9px 19px;cursor:pointer;box-shadow:var(--pop);
-  transition:padding-right var(--ease),background var(--ease),opacity .22s}
-.navw-tab:hover{padding-right:14px;background:var(--ink-2)}
-.navw-tab:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-.navw-now{writing-mode:vertical-rl;transform:rotate(180deg);
-  font:600 10.5px/1 var(--sans);letter-spacing:.17em;text-transform:uppercase;
-  color:var(--muted-2);transition:color var(--ease)}
-.navw-tab:hover .navw-now{color:#fff}
-.navw-burger{display:grid;gap:3px}
-.navw-burger i{display:block;width:14px;height:2px;border-radius:1px;background:var(--accent)}
-.navw.open .navw-tab{opacity:0;pointer-events:none}
-
-/* a light dim, not a blackout: the page keeps changing behind the wheel */
-.navw-scrim{position:absolute;inset:0;background:rgba(26,28,27,0);
-  transition:background .34s;pointer-events:none}
-.navw.open .navw-scrim{background:rgba(26,28,27,.24);pointer-events:auto}
-
-/* The sheet fades out to the right rather than ending on a hard edge, so it
-   reads as the page's own margin folding open instead of a modal. */
-.navw-sheet{--nav-inset:54px;
-  position:absolute;left:0;top:0;bottom:0;width:min(430px,86vw);
-  display:flex;flex-direction:column;padding:26px 0 24px;
-  background:linear-gradient(96deg,rgb(19,21,20) 0%,rgb(19,21,20) 46%,
-    rgba(19,21,20,.93) 73%,rgba(19,21,20,0) 100%);
-  transform:translateX(-102%);opacity:0;pointer-events:none;will-change:transform;
-  transition:transform .44s cubic-bezier(.22,.9,.26,1),opacity .26s linear}
-.navw.open .navw-sheet{transform:none;opacity:1;pointer-events:auto}
-.navw-wheel{flex:1;min-height:0;margin:var(--s4) 0}
-.navw-eyebrow,.navw-hint{padding-left:var(--nav-inset);padding-right:var(--s4);
-  font:600 10.5px/1.6 var(--sans);letter-spacing:.16em;text-transform:uppercase;
-  color:var(--muted-2);margin:0}
-.navw-hint{letter-spacing:.06em;text-transform:none;font-weight:400;font-size:11.5px;
-  color:#5C625F}
-.navw-hint b{color:var(--muted-2);font-weight:600}
-
-/* the options themselves: the page's display face, not the vendored default */
-.navw .option-wheel{counter-reset:ow}
-.navw .option-wheel__item{counter-increment:ow;
-  font-family:var(--disp);font-weight:600;font-stretch:70%;font-size:var(--ow-font-size);
-  text-transform:uppercase;letter-spacing:-.005em;line-height:.95}
-.navw .option-wheel__item--selected{font-weight:700}
-/* the number is the keyboard shortcut, so it earns its place */
-.navw .option-wheel__item::before{content:counter(ow);position:absolute;left:-30px;top:.3em;
-  font:600 11px/1 var(--sans);font-stretch:100%;letter-spacing:.06em;
-  color:var(--muted-2);opacity:calc(.35 + .5 * var(--ow-p,0))}
-/* and the accent rule only reaches full strength on the centred option */
-.navw .option-wheel__item::after{content:"";position:absolute;left:0;bottom:-.3em;
-  height:2px;width:100%;background:var(--accent);
-  opacity:calc(var(--ow-p,0) * var(--ow-p,0));
-  transform:scaleX(calc(.3 + .7 * var(--ow-p,0)));transform-origin:left center}
-
-@media(prefers-reduced-motion:reduce){
-  .navw-sheet{transition:opacity .12s linear}
-}
-@media(max-width:640px){
-  .navw-sheet{--nav-inset:44px}
-  .navw-tab{padding:14px 7px 16px}
-}
+/* Folder tabs. The active tab is the same white surface as the panel and sits
+   flush on its top edge -- header padding-bottom is 0 so there is no gap to
+   fall through -- with an outward curve at each bottom corner, so tab and
+   panel read as one continuous sheet instead of a pill floating above one. */
+/* the gap equals the flare radius below, so a neighbour's hover background can
+   never reach into the active tab's curve and clip it */
+nav{display:flex;gap:12px;margin-top:var(--s4);align-items:flex-end}
+nav button{position:relative;z-index:1;background:none;border:0;color:var(--muted-2);cursor:pointer;
+  /* whole-pixel line-height: a fractional tab height puts the seam between
+     tab and panel on a half pixel, which antialiases into a visible hairline */
+  font:600 11.5px/14px var(--sans);letter-spacing:.1em;text-transform:uppercase;
+  padding:13px 20px;border-radius:var(--r-sm) var(--r-sm) 0 0;
+  transition:color var(--ease),background var(--ease)}
+nav button:hover{color:#fff;background:var(--ink-2)}
+nav button[aria-selected="true"]{color:var(--ink);background:var(--paper);
+  padding-top:15px;z-index:2}
+/* the two quarter-circle flares that tie the tab into the panel below */
+nav button[aria-selected="true"]::before,
+nav button[aria-selected="true"]::after{content:"";position:absolute;bottom:0;
+  width:12px;height:12px;pointer-events:none}
+nav button[aria-selected="true"]::before{left:-12px;
+  background:radial-gradient(circle at top left,transparent 11.5px,var(--paper) 12px)}
+nav button[aria-selected="true"]::after{right:-12px;
+  background:radial-gradient(circle at top right,transparent 11.5px,var(--paper) 12px)}
+nav button:focus-visible{outline:2px solid var(--accent);outline-offset:-3px}
 
 main{background:var(--paper);border-radius:var(--r) var(--r) 0 0;
   padding:var(--s5) var(--pad) 90px;min-height:70vh}
@@ -289,6 +231,16 @@ select{-webkit-appearance:none;appearance:none;cursor:pointer;padding-right:34px
 /* ---------- tables ---------- */
 .tw{border:1px solid var(--line);border-radius:var(--r-ctl);overflow:auto;max-height:66vh;
   background:var(--paper)}
+/* The lead table is the product, not a panel on a page about it: it gets the
+   height that is left on the screen and type you can read across a desk,
+   instead of the 66vh box every secondary table shares. */
+.tw.lead{max-height:calc(100vh - 128px);font-size:14px}
+.tw.lead table{font-size:14px}
+.tw.lead thead th{padding:15px 16px;font-size:10.5px}
+.tw.lead tbody td{padding:13px 16px}
+.tw.lead tbody td:first-child{padding-left:20px}
+.tw.lead tbody td:last-child{padding-right:20px}
+.tw.lead .cname{font-size:15px}
 table{border-collapse:collapse;width:100%;font-size:13px}
 /* no vertical rules between columns -- alignment does that job, gridlines
    just add noise */
@@ -339,8 +291,19 @@ code{font:500 12px/1 ui-monospace,'SF Mono',Menlo,Consolas,monospace;background:
 .pager button:disabled{opacity:.35;cursor:default}
 
 /* ---------- radar ---------- */
-.sliders{display:flex;gap:var(--s4);flex-wrap:wrap;align-items:center}
-.sliders label{display:flex;align-items:center;gap:var(--s2);font:400 12.5px var(--sans);color:var(--text)}
+/* Two columns, one per side of the trade, because a slider you cannot place
+   is a slider you will not touch. Each row is name / slider / share, aligned
+   on a grid so the shares read down the right edge as a column of numbers. */
+.sliders{display:grid;grid-template-columns:repeat(auto-fit,minmax(330px,1fr));
+  gap:var(--s4) var(--s6);align-items:start}
+.sliderset{display:flex;flex-direction:column;gap:9px;max-width:560px}
+.sliderset > .k{font:600 11px/1 var(--sans);letter-spacing:.12em;text-transform:uppercase;
+  color:var(--ink);margin:0 0 3px;display:flex;flex-wrap:wrap;gap:8px;align-items:baseline}
+.sliderset > .k span{font:400 11.5px/1 var(--sans);letter-spacing:0;text-transform:none;
+  color:var(--muted-2)}
+.sliders label{display:grid;grid-template-columns:minmax(0,1fr) auto 40px;align-items:center;
+  gap:var(--s3);font:400 13px var(--sans);color:var(--text)}
+.sliders label .t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 input[type=range]{-webkit-appearance:none;appearance:none;width:124px;height:4px;
   background:var(--line);border-radius:var(--pill);cursor:pointer}
 input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:16px;height:16px;
@@ -351,7 +314,8 @@ input[type=range]:focus-visible{outline:none}
 input[type=range]:focus-visible::-webkit-slider-thumb{box-shadow:0 0 0 1px var(--ink),var(--ring)}
 input[type=range]::-moz-range-thumb{width:14px;height:14px;border-radius:50%;
   background:var(--ink);border:3px solid var(--paper)}
-.sliders b{font:600 12px var(--sans);min-width:20px;text-align:right;font-variant-numeric:tabular-nums}
+.sliders b{font:600 12.5px var(--sans);text-align:right;font-variant-numeric:tabular-nums;
+  color:var(--ink)}
 .resetbtn{font:600 11px var(--sans);letter-spacing:.08em;text-transform:uppercase;
   border:1px solid var(--line);background:var(--paper);border-radius:var(--r-ctl);
   padding:9px 14px;cursor:pointer;
@@ -412,6 +376,9 @@ details.adv summary::before{content:"";width:6px;height:6px;flex:none;border-rig
   transition:transform var(--ease)}
 details.adv[open] summary::before{transform:rotate(45deg)}
 details.adv[open] summary{margin-bottom:var(--s3);color:var(--ink)}
+details.adv .hint{font:400 12.5px/1.6 var(--sans);color:var(--muted);
+  max-width:86ch;margin:0 0 var(--s4)}
+details.adv .resetbtn{margin-top:var(--s4)}
 .svctxt{display:block;font:400 11.5px var(--sans);color:var(--muted);margin-top:3px;white-space:nowrap}
 .band{display:inline-block;font:600 10px/1 var(--sans);letter-spacing:.06em;text-transform:uppercase;
   padding:5px 9px;border-radius:var(--pill)}
@@ -803,3 +770,79 @@ thead th.has-help{cursor:help}
 .rc-key i{width:10px;height:10px;border-radius:50%;flex:0 0 auto}
 .rc-key i.rule{width:18px;height:4px;border-radius:var(--pill);background:var(--line)}
 .rc-key .sp{color:var(--muted-2)}
+
+/* ---------- ask ----------
+   The one part of the product you operate rather than read, so it opens on a
+   question and nothing else: no KPI strip above it competing for the first
+   glance, and the evidence table directly under the answer it produced. */
+.askhero{max-width:78ch;padding:var(--s4) 0 var(--s5)}
+.askhero h2{font-family:var(--disp);font-weight:700;font-stretch:68%;text-transform:uppercase;
+  font-size:clamp(30px,4.2vw,50px);line-height:.94;letter-spacing:-.015em;margin:8px 0 12px}
+.askhero .lede{margin-bottom:var(--s4);max-width:70ch}
+.askform{display:flex;gap:var(--s2);flex-wrap:wrap}
+.askform input{flex:1 1 380px;font:400 16px/1.3 var(--sans);color:var(--text);
+  padding:15px 17px;border:1px solid var(--line-2);border-radius:var(--r-ctl);
+  background:var(--paper);transition:border-color var(--ease),box-shadow var(--ease)}
+.askform input::placeholder{color:var(--muted-2)}
+.askform input:focus{outline:0;border-color:var(--iris);box-shadow:0 0 0 3px var(--iris-soft)}
+.askform input:disabled{background:var(--paper-2);color:var(--muted-2)}
+.askform button{font:600 14px/1 var(--sans);color:#fff;background:var(--iris);border:0;
+  border-radius:var(--r-ctl);padding:0 28px;min-height:52px;cursor:pointer;
+  transition:filter var(--ease)}
+.askform button:hover:not(:disabled){filter:brightness(1.1)}
+.askform button:disabled{opacity:.45;cursor:default}
+.askoff{font:400 13px/1.6 var(--sans);color:var(--muted);margin-top:var(--s3);max-width:70ch;
+  border-left:2px solid var(--line-2);padding-left:14px}
+.askoff code{font:500 12px var(--mono,ui-monospace,SFMono-Regular,Menlo,monospace);
+  background:var(--paper-2);padding:2px 6px;border-radius:4px}
+.askegh{font:600 10.5px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;
+  color:var(--muted-2);margin:var(--s5) 0 var(--s2)}
+.askeg{display:flex;flex-wrap:wrap;gap:var(--s2)}
+.askeg button{font:400 13px/1.35 var(--sans);color:var(--text);background:var(--paper);
+  border:1px solid var(--line);border-radius:var(--r-ctl);padding:11px 15px;cursor:pointer;
+  text-align:left;transition:color var(--ease),border-color var(--ease),background var(--ease)}
+.askeg button:hover{color:var(--iris);border-color:var(--iris);background:var(--iris-soft)}
+
+.askout{display:none;border-top:1px solid var(--line);padding-top:var(--s5)}
+.askout.on{display:block}
+/* the question, quoted back, so a long answer never loses what it answers */
+.askq{font-family:var(--disp);font-weight:700;font-stretch:70%;text-transform:uppercase;
+  font-size:clamp(19px,2.2vw,26px);line-height:1.06;letter-spacing:-.01em;
+  color:var(--ink);margin:0 0 var(--s3);max-width:60ch}
+.askout p.a{font:400 16px/1.65 var(--sans);color:var(--text);margin:0 0 var(--s4);max-width:74ch}
+.askout p.a.muted{color:var(--muted-2)}
+.askcap{font:600 10.5px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;
+  color:var(--muted-2);margin:0 0 var(--s2)}
+.askout table{width:100%;border-collapse:collapse;font-size:13.5px}
+.askout th{font:600 10px/1 var(--sans);letter-spacing:.1em;text-transform:uppercase;
+  color:var(--muted);text-align:left;padding:0 var(--s3) var(--s2) 0;white-space:nowrap}
+.askout td{padding:9px var(--s3) 9px 0;border-top:1px solid var(--line);
+  font-variant-numeric:tabular-nums}
+.askout td:nth-child(2){font-weight:600}
+
+/* A headline strip, not a headline banner. On the one screen whose job is the
+   table underneath it, three numbers at 42px pushed that table 514px down the
+   page -- four rows visible on a 1200px screen, which is what made the list
+   read as a widget bolted to a report rather than the report. */
+.kpis.slim{grid-template-columns:repeat(auto-fit,minmax(150px,1fr));margin-bottom:var(--s3)}
+.kpis.slim .kpi{padding:11px 16px 12px;display:flex;flex-wrap:wrap;align-items:baseline;
+  gap:4px 10px}
+.kpis.slim .kpi .label{flex:1 0 100%;font-size:9.5px}
+.kpis.slim .kpi .v{font-size:26px;margin:2px 0 0}
+.kpis.slim .kpi .n{font-size:11.5px;margin-bottom:1px}
+
+/* the filter row carries its own actions, so nothing sits between it and the
+   table it filters */
+.controls .ai-wrap{margin:0}
+.controls .ai-btn.sm{white-space:nowrap}
+
+/* One line of prose per row. The clause naming the technologies is gone from
+   the sentence because the chips beneath it say the same thing, and what is
+   left fits the measure at this width. */
+.tw.lead .csub{margin-top:3px;font-size:12.5px;max-width:none}
+.tw.lead .cchips{margin-top:6px}
+/* the company column was 52% wide and its text stopped well short of that,
+   leaving a dead band down the middle of every row; the meters move left
+   into it and get the width back as resolution */
+.tw.lead #ra-body td.nm,.tw.lead thead th:nth-child(2){width:46%}
+.tw.lead #ra-body td.sg,.tw.lead thead th:nth-child(3){width:32%}

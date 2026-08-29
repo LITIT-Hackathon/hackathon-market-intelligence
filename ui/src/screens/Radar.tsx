@@ -25,6 +25,12 @@ const SLIDER: Record<Sig, string> = {
   svcsig: "How much of it we could staff",
   dealsig: "How many people we could place at once",
 };
+/* The sliders are split the way the score is: four things about the market,
+   two about us. Unlabelled, a reader cannot tell which half they are moving. */
+const SIDES: [string, string, Sig[]][] = [
+  ["What they need", "measured from the German job board", MARKET],
+  ["What we can bring", "measured against our bench", OURS],
+];
 const NEEDMIX: [Sig, string][] = [
   ["unmet", "Roles they cannot fill"],
   ["expansion", "Hiring above their own baseline"],
@@ -180,7 +186,7 @@ export function Radar({ R, on }: { R: RadarData; on: Tab }) {
     const plain = (r: Row) => {
       const it = itN(r), dead = deadN(r) || 0, up = it - dead;
       const o45 = open45(r);
-      const sen = seniorN(r), t = techs(r);
+      const sen = seniorN(r);
       const stock = nowStock(r), aged = nowAged(r);
       const bits: string[] = [];
       /* Where the live board answered, lead with what is open TODAY: the
@@ -195,7 +201,6 @@ export function Radar({ R, on }: { R: RadarData; on: Tab }) {
       }
       if (sen) bits.push(`${plural(sen, "is senior", "are senior")}`);
       let s = bits.join(", ") + ".";
-      if (t.length) s += ` Mostly ${t.slice(0, 2).join(" and ")}.`;
       const v = svc(r);
       if (v < 0.5) s += ` We could only staff ${staffLabel(v)}.`;
       return s;
@@ -253,6 +258,13 @@ export function Radar({ R, on }: { R: RadarData; on: Tab }) {
     ];
   }, [rx, name, oppOf, demandOf, reachOf, stalePct]);
 
+  /* what a slider is actually worth: its share of the total, which is what
+     the geometric mean normalises by */
+  const share = (k: Sig) => {
+    const tw = SIG.reduce((a, x) => a + W[x], 0);
+    return tw ? Math.round((100 * W[k]) / tw) : 0;
+  };
+
   const setWeight = (k: Sig, v: number) => {
     setW((w) => ({ ...w, [k]: v }));
     setOpenKey(null);
@@ -269,11 +281,38 @@ export function Radar({ R, on }: { R: RadarData; on: Tab }) {
   return (
     <Screen id="radar" group="radar" on={on}>
       <p className="label">Opportunities &middot; demand matched to people</p>
-      <div className="kpis">
+      <div className="kpis slim">
         <div className="kpi hl"><p className="label">Companies worth calling</p><p className="v num" id="k-ranked">{fmt(rows.length)}</p><p className="n">ranked below, best first</p></div>
         <div className="kpi"><p className="label">IT roles they cannot fill</p><p className="v num" id="k-roles">{fmt(sum("it_n"))}</p><p className="n">open right now across all of them</p></div>
         <div className="kpi"><p className="label">Open over 6 weeks</p><p className="v num" id="k-stuck">{fmt(sum("open45"))}</p><p className="n">still not filled after six weeks</p></div>
       </div>
+
+      {/* Everything you can change sits above the thing it changes. The
+          weight sliders used to live below the table, so the control was off
+          screen whenever the list it controlled was on it. */}
+      <details className="adv">
+        <summary>Change what makes a good lead &mdash; the list re-ranks as you drag</summary>
+        <p className="hint">Each slider is how much of the 100-point score that one signal is
+          allowed to award. Push it up and companies strong on that signal rise; drag it to
+          zero and it stops counting entirely. The percentage beside each is its current share
+          of the score. They start at the model&rsquo;s own weights.</p>
+        <div className="sliders">
+          {SIDES.map(([title, sub, keys]) => (
+            <div className="sliderset" key={title}>
+              <p className="k">{title}<span>{sub}</span></p>
+              {keys.map((k) => (
+                <label key={k}>
+                  <span className="t">{SLIDER[k]}</span>
+                  <input type="range" id={"w-" + k} min="0" max="50" value={W[k]}
+                    onChange={(e) => setWeight(k, +e.target.value)} />
+                  <b id={"wv-" + k}>{share(k)}%</b>
+                </label>
+              ))}
+            </div>
+          ))}
+        </div>
+        <button id="w-reset" className="resetbtn" onClick={reset}>Back to the model&rsquo;s weights</button>
+      </details>
 
       <div className="controls stick">
         <input type="search" id="ra-q" placeholder="Search for a company..." value={q} onChange={(e) => setQ(e.target.value)} />
@@ -291,43 +330,14 @@ export function Radar({ R, on }: { R: RadarData; on: Tab }) {
         </select>
         <label className="chk"><input type="checkbox" id="ra-noreview" checked={noRev} onChange={(e) => setNoRev(e.target.checked)} /> Only externally verified</label>
         <Count id="ra-count" n={rows.length} total={R.rows.length} noun="companies" />
+        <AiButton task="summary" args={summaryArgs} small
+          label={`Summarise these ${rows.length}`} />
       </div>
+
+      {/* This table is the product, not a panel on a page about the product. */}
       <DataTable columns={columns} rows={rows} sort={3} dir={-1} bodyId="ra-body"
-        rowClass={rowClass} onRowClick={onRowClick} expanded={expanded} />
+        wrapClass="lead" rowClass={rowClass} onRowClick={onRowClick} expanded={expanded} />
 
-      {/* Summarise whatever the filters currently show, not the whole pool:
-          the question a reader has after filtering is "so what is this set?" */}
-      <AiButton task="summary" args={summaryArgs} label="Summarise this list"
-        hint={`What the ${rows.length} companies on screen have in common, and who to call first. Re-run it after changing a filter.`} />
-
-      <details className="adv">
-        <summary>Advanced &mdash; change what counts as a good lead</summary>
-        <p className="hint">Drag a slider and the ranking re-sorts instantly. Nothing is hardcoded:
-          these four things are what decide the order.</p>
-        <div className="sliders">
-          {SIG.map((k) => (
-            <label key={k}>{SLIDER[k]}{" "}
-              <input type="range" id={"w-" + k} min="0" max="50" value={W[k]} onChange={(e) => setWeight(k, +e.target.value)} />
-              <b id={"wv-" + k}>{W[k]}</b>
-            </label>
-          ))}
-          <button id="w-reset" className="resetbtn" onClick={reset}>Reset</button>
-        </div>
-      </details>
-
-      <div className="note after"><b>How to read a row.</b> Each row carries two meters.
-        {" "}<em>Demand</em> combines the four market signals — unfilled roles, hiring above their
-        own baseline, one concentrated programme, and seniority; <em>We staff</em> is how much
-        of that demand our bench could take &mdash; both how well we fit it and how many people
-        we could place at once, because a one-person contract is not really a contract. The score is the two combined,
-        out of a possible 100 &mdash; and 100 cannot happen, because it would need a company that is
-        simultaneously perfect on all six signals. The best company here scores in the 80s, the number is
-        absolute rather than a ranking, and it does not change when you filter the list.
-        A company with demand we cannot serve does not reach the top. Click any row for the whole
-        breakdown &mdash; the four things behind Demand, what we bring against them, and the
-        real job ads on arbeitsagentur.de. <em>unconfirmed</em> marks companies the keyword
-        rules could not classify as customer or supplier; their confidence is already
-        discounted, but check before calling.</div>
     </Screen>
   );
 }

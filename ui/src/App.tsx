@@ -1,8 +1,8 @@
 import { useCallback, useMemo, useState } from "react";
 import type { Payload } from "./data";
-import { NavWheel, type NavItem } from "./components/NavWheel";
 import RotatingText from "./components/RotatingText";
 import { Collapse } from "./components/Collapse";
+import { Ask } from "./screens/Ask";
 import { Brief } from "./screens/Brief";
 import { Radar } from "./screens/Radar";
 import { Companies } from "./screens/Companies";
@@ -11,7 +11,7 @@ import { Bench } from "./screens/Bench";
 import { Talent } from "./screens/Talent";
 import { Candidates } from "./screens/Candidates";
 
-type Tab = "brief" | "radar" | "companies" | "people";
+type Tab = "brief" | "radar" | "ask" | "companies" | "people";
 
 /** One nav tab can reveal several stacked sections; every section stays
     mounted so filters survive a tab switch, exactly as the page did before. */
@@ -25,10 +25,11 @@ export function Screen({ id, group, on, children }: { id: string; group: Tab; on
 
 export function App({ data }: { data: Payload }) {
   const m = data.meta;
-  const tabs = useMemo<NavItem<Tab>[]>(() => {
-    const t: NavItem<Tab>[] = [];
+  const tabs = useMemo<{ id: Tab; label: string }[]>(() => {
+    const t: { id: Tab; label: string }[] = [];
     if (data.brief) t.push({ id: "brief", label: "Briefing" });
     if (data.radar) t.push({ id: "radar", label: "Opportunities" });
+    t.push({ id: "ask", label: "Ask" });
     t.push({ id: "companies", label: "Companies" });
     if (data.bench || data.talent) t.push({ id: "people", label: "People" });
     return t;
@@ -41,7 +42,6 @@ export function App({ data }: { data: Payload }) {
     setOn(t);
     window.scrollTo(0, 0);
   }, []);
-  const here = tabs.find((t) => t.id === on);
   // A brand mark that never stops moving is exactly what this setting asks
   // us not to do, so it falls back to the wordmark it spells out.
   const still = typeof window !== "undefined"
@@ -49,16 +49,14 @@ export function App({ data }: { data: Payload }) {
 
   return (
     <>
-      <NavWheel items={tabs} on={on} go={go} />
-
       <header>
         <div className="bar">
           {/* The mark reads itself out: OP_ -- RADAR_ -- SCANNING_ -- FOR OPS_,
               keeping the underscore the wordmark always carried. The cursor is
               the last character of every string rather than a fixed span next
               to them, so it can never drift while the width animates; the CSS
-              paints the last glyph in the accent. The section name sits at the
-              other end of the bar, so a changing mark never nudges it. */}
+              paints the last glyph in the accent. The tabs below say which
+              section you are in, so the mark does not have to. */}
           <div className="brand">
             {still ? (
               <span className="mark">OP<b>_</b>RADAR</span>
@@ -78,12 +76,22 @@ export function App({ data }: { data: Payload }) {
               </span>
             )}
           </div>
-          <span className="sub">{here?.label}</span>
         </div>
+        {/* Folder tabs: the active one is the same white surface as the panel
+            below it and sits flush on its top edge. */}
+        <nav>
+          {tabs.map((t) => (
+            <button key={t.id} data-s={t.id} aria-selected={t.id === on} onClick={() => go(t.id)}>
+              {t.label}
+            </button>
+          ))}
+        </nav>
       </header>
 
       <main>
         {data.brief && <Brief b={data.brief} on={on} />}
+        <Ask examples={data.brief?.examples ?? []}
+          pool={data.radar ? data.radar.rows.length : 0} on={on} />
         {data.radar && <Radar R={data.radar} on={on} />}
         <Companies data={data} on={on} />
         <Overview data={data} on={on} />

@@ -1,4 +1,3 @@
-import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { Screen, type Tab } from "../App";
 import { AiButton } from "../components/Ai";
 import { Kpi, f0 } from "../components/Kpi";
@@ -42,93 +41,6 @@ function Bars({ items, unit = "" }: { items: { name: string; weight: number }[];
   );
 }
 
-interface AskTable { columns: string[]; rows: Record<string, unknown>[] }
-interface AskReply { answer?: string; error?: string; table?: AskTable }
-
-const num = (v: unknown): ReactNode =>
-  typeof v === "number" && !Number.isInteger(v) ? v.toFixed(v < 10 ? 2 : 0) : String(v ?? "");
-
-/* Talks to `python -m opradar.ask` on the same origin. The built page carries
-   no key and no endpoint of its own -- opened as a plain file the probe below
-   fails and the box stays hidden, which is the honest behaviour for a page
-   that cannot answer. */
-function AskBox({ examples }: { examples: string[] }) {
-  const [live, setLive] = useState(false);
-  const [q, setQ] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [out, setOut] = useState<ReactNode>(null);
-
-  useEffect(() => {
-    let alive = true;
-    fetch("/ask")
-      .then((r) => (r.ok ? r.json() : null))
-      .then((j: { ok?: boolean } | null) => { if (alive && j && j.ok) setLive(true); })
-      .catch(() => {});
-    return () => { alive = false; };
-  }, []);
-
-  const ask = (question: string) => {
-    if (!question) return;
-    setBusy(true);
-    setOut(<p className="a">Working&hellip;</p>);
-    fetch("/ask", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ q: question }),
-    })
-      .then((r) => r.json())
-      .then((j: AskReply) => {
-        if (j.error) { setOut(<p className="a">{j.error}</p>); return; }
-        /* The table is printed under every answer on purpose: it is where the
-           numbers in the prose came from, and it is what makes them checkable. */
-        const t = j.table;
-        const rows = t && t.rows ? t.rows.length : 0;
-        setOut(
-          <>
-            <p className="a">{j.answer}</p>
-            {t && rows > 0 && (
-              <div className="bf-tw">
-                <table>
-                  <thead><tr>{t.columns.map((c) => <th key={c}>{c.replace(/_/g, " ")}</th>)}</tr></thead>
-                  <tbody>
-                    {t.rows.map((r, i) => (
-                      <tr key={i}>{t.columns.map((c) => <td key={c}>{num(r[c])}</td>)}</tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-            {rows > 0 && <p className="bf-src">Counted in pandas from the ranked pool. Ranks match the Opportunities tab.</p>}
-          </>,
-        );
-      })
-      .catch(() => {
-        setOut(<p className="a">Could not reach the ask service. Is <code>python -m opradar.ask</code> still running?</p>);
-      })
-      .then(() => setBusy(false));
-  };
-
-  const submit = (e: FormEvent) => { e.preventDefault(); ask(q.trim()); };
-  return (
-    <div className={live ? "bf-ask live" : "bf-ask"} id="bf-ask">
-      <h3>Ask about the pool</h3>
-      <p className="hint">The question becomes a filter, the filter runs in pandas,
-        and only the result is written up &mdash; so every number in an answer is
-        in the table underneath it. Nothing is recalled from memory.</p>
-      <form className="bf-form" id="bf-form" onSubmit={submit}>
-        <input id="bf-q" type="text" autoComplete="off" placeholder="e.g. who went quiet in the last month?"
-          value={q} onChange={(e) => setQ(e.target.value)} />
-        <button id="bf-send" type="submit" disabled={busy}>Ask</button>
-      </form>
-      <div className="bf-eg">
-        {examples.map((e) => (
-          <button type="button" key={e} onClick={() => { setQ(e); ask(e); }}>{e}</button>
-        ))}
-      </div>
-      <div className={out ? "bf-out on" : "bf-out"} id="bf-out">{out}</div>
-    </div>
-  );
-}
-
 export function Brief({ b, on }: { b: BriefData; on: Tab }) {
   const c = b.cohorts, ours = b.ours, dem = b.demand;
   const extracted = ours.ads_read_in_full || 0;
@@ -158,11 +70,9 @@ export function Brief({ b, on }: { b: BriefData; on: Tab }) {
         <Kpi label="Re-observed today" v={c.observed_n} n={`of ${ours.companies_ranked} ranked companies`} />
         <Kpi hl label="Stalled" v={c.stalled_n} n="open roles, nothing new posted" />
         <Kpi label="Accelerating" v={c.accelerating_n} n="posted again in the last four weeks" />
-        <Kpi label="We could place" v={f0(ours.people_we_could_place)}
-          n={`people across ${ours.companies_with_live_roles} companies`} />
+        <Kpi label="Roles our bench covers" v={f0(ours.roles_our_bench_covers)}
+          n={`of ${ours.roles_live_in_our_crawl} still live, across ${ours.companies_with_live_roles} companies`} />
       </div>
-
-      <AskBox examples={b.examples} />
 
       <div className="bf-calls">
         <span className="label">Call these this week</span>

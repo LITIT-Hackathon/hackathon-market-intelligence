@@ -180,7 +180,6 @@ export interface Brief {
     companies_ranked: number;
     companies_with_live_roles: number;
     companies_with_nothing_to_staff: number;
-    people_we_could_place: number;
     roles_our_bench_covers: number;
     roles_live_in_our_crawl: number;
     ads_read_in_full?: number;

@@ -222,14 +222,6 @@ export function Bench({ B, on }: { B: BenchData; on: Tab }) {
   return (
     <Screen id="bench" group="people" on={on}>
       <p className="label">Bench &middot; people scoring</p>
-      <div className="note"><b>Every person on this screen is synthetic.</b>
-        {" "}The bench models a Lithuanian nearshore consultancy &mdash; strong in modern software
-        delivery, thin in SAP and embedded &mdash; so the gap against German demand stays visible
-        rather than flattered away.
-        {B.simulated && <> <b>Day rate, rating and GitHub are simulated too</b> and are not
-          evidence of anything; they are here so the matcher has commercial fields to work
-          against. Everything measured from the German postings is unaffected.</>}</div>
-
       <div className="kpis">
         <Kpi hl label="People on the bench" v={String(bm.size)} n="who we could put on a project" />
         <Kpi label="Speak German" v={String(bm.german_speakers)} n="the hard limit on how much German work we can take" />
