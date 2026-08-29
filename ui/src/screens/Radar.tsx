@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useState, type ReactNode } from "react";
 import { Screen, type Tab } from "../App";
+import { AiButton } from "../components/Ai";
 import { Count, DataTable, type Column } from "../components/DataTable";
 import { indexer, type Radar as RadarData, type Row, type TimelineAd } from "../data";
 import { fmt, plural } from "../format";
@@ -129,6 +130,20 @@ export function Radar({ R, on }: { R: RadarData; on: Tab }) {
   /* headline numbers describe what is on screen -- a header saying 306
      above a list of 109 reads as a bug to anyone who is not us */
   const sum = (k: string) => rows.reduce((a, r) => a + rx<number>(k)(r), 0);
+
+  /* What the analyst is asked to summarise: the rows the filters left, and a
+     sentence naming the filter so the summary can say what it is describing. */
+  const summaryArgs = useMemo(() => {
+    const bits: string[] = [];
+    if (q.trim()) bits.push(`matching "${q.trim()}"`);
+    if (cls) bits.push(cls.replace(/_/g, " "));
+    if (band) bits.push(`${band} evidence`);
+    if (noRev) bits.push("externally verified only");
+    return {
+      companies: rows.map(name),
+      label: bits.length ? `filtered to ${bits.join(", ")}` : "the whole ranked pool",
+    };
+  }, [rows, name, q, cls, band, noRev]);
 
   const columns = useMemo<Column<Row>[]>(() => {
     const review = rx<boolean>("review");
@@ -262,6 +277,11 @@ export function Radar({ R, on }: { R: RadarData; on: Tab }) {
       <DataTable columns={columns} rows={rows} sort={3} dir={-1} bodyId="ra-body"
         rowClass={rowClass} onRowClick={onRowClick} expanded={expanded} />
 
+      {/* Summarise whatever the filters currently show, not the whole pool:
+          the question a reader has after filtering is "so what is this set?" */}
+      <AiButton task="summary" args={summaryArgs} label="Summarise this list"
+        hint={`What the ${rows.length} companies on screen have in common, and who to call first. Re-run it after changing a filter.`} />
+
       <details className="adv">
         <summary>Advanced &mdash; change what counts as a good lead</summary>
         <p className="hint">Drag a slider and the ranking re-sorts instantly. Nothing is hardcoded:
@@ -294,6 +314,7 @@ export function Radar({ R, on }: { R: RadarData; on: Tab }) {
 
 /* ---- the detail tier: every number the collapsed row left out ---- */
 function Detail({ r, rx }: { r: Row; rx: ReturnType<typeof indexer> }) {
+  const company = rx<string>("name")(r);
   const dead = rx<number>("dead_n")(r) || 0, live = rx<number>("it_n")(r) - dead;
   const o45 = rx<number>("open45")(r), sen = rx<number>("senior_n")(r);
   const cov = rx<number>("covered")(r), tot = cov + rx<number>("uncovered")(r);
@@ -387,6 +408,13 @@ function Detail({ r, rx }: { r: Row; rx: ReturnType<typeof indexer> }) {
       <p className="evhead">Open roles over time
         <span className="sfx">from the June crawl &mdash; hover the line to see which</span></p>
       <Timeline tl={tl} />
+
+      {/* The analyst. Everything above this line was counted; everything below
+          it is written from those counts and cites the advertisements it used. */}
+      <AiButton task="company" args={{ company }} label="Write the full brief"
+        hint="Reads this company's advertisements and writes the account brief: what they are building, why this week, the play to run, and the reasons it could still be a waste of time." />
+      <AiButton task="outreach" args={{ company }} label="Prepare the call" small
+        hint="A German phone script built on one of these advertisements, plus which channels are legal to use here." />
     </div>
   );
 }

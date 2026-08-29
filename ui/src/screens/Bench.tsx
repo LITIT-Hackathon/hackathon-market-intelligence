@@ -1,5 +1,6 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useCallback, useMemo, useState, type ReactNode } from "react";
 import { Screen, type Tab } from "../App";
+import { AiButton } from "../components/Ai";
 import { HBar, HBar2, type BarRow, type PairRow } from "../components/Charts";
 import { Count, DataTable, type Column } from "../components/DataTable";
 import { Kpi } from "../components/Kpi";
@@ -49,6 +50,23 @@ export function Bench({ B, on }: { B: BenchData; on: Tab }) {
   const [q, setQ] = useState("");
   const [fam, setFam] = useState("");
   const [avail, setAvail] = useState(false);
+  const [openCell, setOpenCell] = useState<string | null>(null);
+
+  /* A cell is family/seniority/technology -- the same triple the capability
+     plan is keyed on, so the row the reader clicked is the row the analyst
+     looks up. Clicking one asks what to do about the gap. */
+  const cellKey = (r: CellRow) => `${r[0]}/${r[1]}/${r[2]}`;
+  const cellClass = useCallback(
+    (r: CellRow) => (cellKey(r) === openCell ? "clickable open" : "clickable"), [openCell]);
+  const onCellClick = useCallback(
+    (r: CellRow) => setOpenCell((k) => (k === cellKey(r) ? null : cellKey(r))), []);
+  const cellExpanded = useCallback((r: CellRow) => (
+    cellKey(r) === openCell ? (
+      <div className="ex">
+        <AiButton task="gap" args={{ cell: cellKey(r) }} label="Write the sourcing brief"
+          hint="What this gap costs us, who to hire against it, and which ranked companies are asking for it." />
+      </div>
+    ) : null), [openCell]);
 
   const gap = useMemo<PairRow[]>(() => {
     const dMax = Math.max(...B.gap.map((x) => x[1]));
@@ -182,9 +200,11 @@ export function Bench({ B, on }: { B: BenchData; on: Tab }) {
           <p className="label">Cells</p><h3>Supply index &mdash; the Pipeline C hand-off</h3>
           <p className="hint">One row per role family &times; seniority. Thin cells (&lt;5 people) are
             flagged: scarcity = 1/depth explodes there, so they are never ranked &mdash; dead code on
-            a 120-person bench in some cells, load-bearing the moment the real bench arrives.</p>
+            a 120-person bench in some cells, load-bearing the moment the real bench arrives.
+            {" "}<b>Click a row</b> for a sourcing brief on that gap.</p>
           <DataTable columns={CELL_COLUMNS} rows={B.cells}
-            sort={3} dir={-1} bodyId="ce-body" maxHeight="44vh" />
+            sort={3} dir={-1} bodyId="ce-body" maxHeight="44vh"
+            rowClass={cellClass} onRowClick={onCellClick} expanded={cellExpanded} />
         </div>
         <div className="panel wide">
           <p className="label">People ranking</p><h3>Bench value</h3>

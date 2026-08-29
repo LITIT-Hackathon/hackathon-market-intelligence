@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { Screen, type Tab } from "../App";
+import { AiButton } from "../components/Ai";
 import { Kpi, f0 } from "../components/Kpi";
 import type { Brief as BriefData, CohortRow } from "../data";
 
@@ -7,8 +8,9 @@ import type { Brief as BriefData, CohortRow } from "../data";
    by `opradar.brief`. No number here was produced by a model -- the narrator,
    when present, may only re-word the figures, never extend them. */
 
-function Cohort({ title, n, hint, rows, fmt, lead }: {
-  title: string; n: number; hint: string; rows: CohortRow[]; fmt: (r: CohortRow) => string; lead?: boolean;
+function Cohort({ id, title, n, hint, rows, fmt, lead }: {
+  id: string; title: string; n: number; hint: string; rows: CohortRow[];
+  fmt: (r: CohortRow) => string; lead?: boolean;
 }) {
   return (
     <div className={lead ? "bf-co lead" : "bf-co"}>
@@ -18,6 +20,8 @@ function Cohort({ title, n, hint, rows, fmt, lead }: {
       {rows.map((r, i) => (
         <div className="bf-row" key={i}><span>{r.name}</span><b>{fmt(r)}</b></div>
       ))}
+      {n > 0 && <AiButton task="cohort" args={{ cohort: id }} small
+        label={`What "${title.toLowerCase()}" means this week`} />}
     </div>
   );
 }
@@ -169,23 +173,29 @@ export function Brief({ b, on }: { b: BriefData; on: Tab }) {
         {b.calls.map((k, i) => (
           <div className="bf-call" key={i}>
             <span className="bf-rk">{k.rank}</span>
-            <div><h4>{k.name}</h4><p>{k.why}</p></div>
+            <div>
+              <h4>{k.name}</h4><p>{k.why}</p>
+              {/* The sentence above is a template built in pandas. This writes
+                  the actual approach, and says which channels are legal. */}
+              <AiButton task="outreach" args={{ company: k.name }} small
+                label="Prepare this call" />
+            </div>
           </div>
         ))}
       </div>
 
       <p className="label" style={{ marginBottom: "var(--s3)" }}>What each company is doing</p>
       <div className="bf-grid">
-        <Cohort title="Stalled" n={c.stalled_n} lead
+        <Cohort id="stalled" title="Stalled" n={c.stalled_n} lead
           hint="Stopped advertising and filled nothing. Every role still open has been open over a month — they gave up on the board, not on the need."
           rows={c.stalled} fmt={(r) => `${r.now_it_stock} open · all aged`} />
-        <Cohort title="Accelerating" n={c.accelerating_n}
+        <Cohort id="accelerating" title="Accelerating" n={c.accelerating_n}
           hint="Posting new IT roles in the last four weeks, on top of what was already open."
           rows={c.accelerating} fmt={(r) => `+${r.now_it_flow_28} in 28d`} />
-        <Cohort title="Gone quiet" n={c.quiet_n}
+        <Cohort id="quiet" title="Gone quiet" n={c.quiet_n}
           hint="Had IT demand when we crawled, nothing new on the board since. Either solved it or stopped looking here."
           rows={c.quiet} fmt={(r) => `${r.it_n} in June → ${r.now_it_stock}`} />
-        <Cohort title="Stuck" n={c.stuck_n}
+        <Cohort id="stuck" title="Stuck" n={c.stuck_n}
           hint="Still advertising, still not filling: four in five of their open roles have been up over a month."
           rows={c.stuck} fmt={(r) => `${r.now_aged_open}/${r.now_it_stock} aged`} />
       </div>

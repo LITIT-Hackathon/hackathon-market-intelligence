@@ -35,6 +35,8 @@ from pathlib import Path
 
 import pandas as pd
 
+from . import analyst
+
 # --------------------------------------------------------------------------
 # what a question is allowed to touch
 # --------------------------------------------------------------------------
@@ -317,6 +319,19 @@ def answer(client, model: str, o: pd.DataFrame, question: str) -> dict:
 # server
 # --------------------------------------------------------------------------
 
+def say(msg: str) -> None:
+    """Log a line without ever failing on it.
+
+    The Windows console is cp1252 and the data is German; a company name or a
+    quote carrying a character the console cannot encode used to raise inside
+    the request handler, turning a finished analysis into a 500. Logging is
+    not worth a failed request.
+    """
+    enc = getattr(sys.stderr, "encoding", None) or "utf-8"
+    sys.stderr.write(msg.encode(enc, "replace").decode(enc, "replace") + "\n")
+    sys.stderr.flush()
+
+
 def make_handler(ui_dir: Path, state: dict):
     class Handler(SimpleHTTPRequestHandler):
         def __init__(self, *a, **kw):
@@ -333,28 +348,72 @@ def make_handler(ui_dir: Path, state: dict):
             self.end_headers()
             self.wfile.write(raw)
 
+        def _body(self) -> dict:
+            n = int(self.headers.get("Content-Length") or 0)
+            return json.loads(self.rfile.read(n) or b"{}")
+
         def do_GET(self):
-            if self.path.rstrip("/") == "/ask":
+            path = self.path.rstrip("/")
+            if path == "/ask":
                 return self._json(200, {"ok": True, "model": state["model"]})
+            if path == "/ai":
+                # The probe the UI uses to decide whether to show its AI
+                # buttons at all. A page opened straight off disk gets no
+                # answer here and shows none of them, which is the honest
+                # behaviour for a page that cannot generate anything.
+                return self._json(200, {
+                    "ok": True, "model": state["model"],
+                    "tasks": sorted(analyst.TASKS),
+                    "cached": len(state["analyst"].cache)})
             return super().do_GET()
 
         def do_POST(self):
-            if self.path.rstrip("/") != "/ask":
-                return self._json(404, {"error": "not found"})
+            path = self.path.rstrip("/")
+            if path == "/ask":
+                return self._ask()
+            if path == "/ai":
+                return self._ai()
+            return self._json(404, {"error": "not found"})
+
+        def _ask(self):
             try:
-                n = int(self.headers.get("Content-Length") or 0)
-                q = (json.loads(self.rfile.read(n) or b"{}").get("q") or "").strip()
+                q = (self._body().get("q") or "").strip()
             except Exception:
                 return self._json(400, {"error": "bad request"})
             if not q:
                 return self._json(400, {"error": "empty question"})
-            print(f"  ? {q}", file=sys.stderr, flush=True)
+            say(f"  ? {q}")
             try:
                 out = answer(state["client"], state["model"], state["pool"], q)
             except Exception as e:
                 traceback.print_exc()
                 return self._json(500, {"error": f"{type(e).__name__}: {e}"})
-            print(f"  > {out['answer'][:110]}", file=sys.stderr, flush=True)
+            say(f"  > {out['answer'][:110]}")
+            return self._json(200, out)
+
+        def _ai(self):
+            """One analysis. Every number in the reply was counted in pandas."""
+            try:
+                body = self._body()
+            except Exception:
+                return self._json(400, {"error": "bad request"})
+            task = str(body.get("task") or "")
+            if task not in analyst.TASKS:
+                return self._json(400, {"error": f"unknown task {task!r}"})
+            subject = (body.get("company") or body.get("cell")
+                       or body.get("cohort") or f"{len(body.get('companies') or [])} rows")
+            say(f"  * {task}: {subject}")
+            try:
+                out = analyst.run(state["analyst"], state["client"],
+                                  state["model"], task, body,
+                                  refresh=bool(body.get("refresh")))
+            except KeyError as e:
+                return self._json(404, {"error": str(e).strip("'\"")})
+            except Exception as e:
+                traceback.print_exc()
+                return self._json(500, {"error": f"{type(e).__name__}: {e}"})
+            say(f"  > {'cached' if out.get('cached') else 'written'}: "
+                f"{out['title'][:70]}")
             return self._json(200, out)
 
     return Handler
@@ -381,12 +440,18 @@ def main(argv: list[str] | None = None) -> int:
 
     from .extract import build_client
     state = {"pool": prepare(pd.read_parquet(src)), "model": args.model,
-             "client": build_client(args.project, args.location)}
+             "client": build_client(args.project, args.location),
+             # the ask-box answers questions about the pool; the analyst
+             # writes about one company, one cohort or one capability gap,
+             # and needs the postings, the ad text and the plan as well
+             "analyst": analyst.State(args.data)}
 
     srv = ThreadingHTTPServer(("127.0.0.1", args.port),
                               make_handler(args.ui, state))
     print(f"OpRadar ask -- {len(state['pool'])} companies, model {args.model}",
           file=sys.stderr)
+    print(f"  analyst ready: {', '.join(sorted(analyst.TASKS))} "
+          f"({len(state['analyst'].cache)} answers cached)", file=sys.stderr)
     print(f"  open http://127.0.0.1:{args.port}/   (ctrl-c to stop)",
           file=sys.stderr)
     try:

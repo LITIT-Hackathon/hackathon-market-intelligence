@@ -534,3 +534,87 @@ footer a{color:var(--muted-2);text-decoration:underline}
 .bf-out td:nth-child(2){font-weight:600}
 .bf-tw{overflow-x:auto}
 .bf-src{font:400 11px/1.5 var(--sans);color:var(--muted-2);margin-top:var(--s2)}
+
+/* ---------- the analyst ----------
+   Everything generated on this page lives inside one of these panels, and a
+   panel never appears unless `opradar.ask` is serving the page and answered
+   the probe. Iris is our side of the trade everywhere else in this
+   stylesheet, and generated text is our side too -- so the panels are iris,
+   and the yellow the market owns is left alone. */
+.ai{margin:var(--s3) 0 0}
+.ai-cta{display:flex;flex-wrap:wrap;align-items:center;gap:var(--s2) var(--s3)}
+.ai-btn{font:600 13px/1 var(--sans);color:#fff;background:var(--iris);border:0;
+  border-radius:var(--r-ctl);padding:11px 18px;cursor:pointer;
+  transition:filter var(--ease),box-shadow var(--ease)}
+.ai-btn:hover:not(:disabled){filter:brightness(1.1)}
+.ai-btn:focus-visible{outline:none;box-shadow:0 0 0 3px var(--iris-soft)}
+.ai-btn:disabled{opacity:.55;cursor:default}
+.ai-btn.sm{font-size:12px;padding:8px 13px;color:var(--iris);background:var(--iris-soft)}
+.ai-btn.sm:hover:not(:disabled){background:var(--iris);color:#fff;filter:none}
+.ai-hint{font:400 12px/1.5 var(--sans);color:var(--muted);max-width:58ch}
+.ai-err{font:400 13px/1.5 var(--sans);color:var(--warn);margin-top:var(--s2)}
+.ai-link{font:600 12px/1 var(--sans);color:var(--iris);background:none;border:0;
+  padding:2px 0;cursor:pointer;text-decoration:underline;text-underline-offset:3px}
+.ai-link:hover{color:var(--ink)}
+.ai-link:disabled{opacity:.5;cursor:default}
+
+.ai-panel{border:1px solid var(--iris);border-radius:var(--r-sm);
+  background:var(--paper);padding:var(--s4);margin-top:var(--s2);
+  box-shadow:0 0 0 4px var(--iris-soft)}
+.ai-head{display:flex;justify-content:space-between;align-items:flex-start;
+  gap:var(--s3);flex-wrap:wrap;border-bottom:1px solid var(--line);
+  padding-bottom:var(--s3);margin-bottom:var(--s3)}
+.ai-head .label{color:var(--iris)}
+.ai-head h4{font-family:var(--disp);font-weight:700;font-stretch:72%;font-size:26px;
+  line-height:1.05;margin:6px 0 3px;color:var(--ink)}
+.ai-sub{font:400 12px/1.4 var(--sans);color:var(--muted)}
+.ai-actions{display:flex;align-items:center;gap:var(--s3);flex-shrink:0}
+
+.ai-lede{font:500 17px/1.5 var(--sans);color:var(--ink);max-width:66ch;
+  margin-bottom:var(--s3)}
+.ai-para{font:400 14px/1.6 var(--sans);color:var(--ink);max-width:70ch}
+.ai-sec{margin-top:var(--s3)}
+.ai-sec .evhead{margin-bottom:6px}
+
+.ai-script{font:400 14px/1.65 var(--sans);color:var(--ink);max-width:66ch;
+  background:var(--paper-2);border-left:3px solid var(--iris);
+  border-radius:0 var(--r-sm) var(--r-sm) 0;padding:var(--s3) var(--s4)}
+.ai-quote{font:400 13.5px/1.6 var(--sans);color:var(--ink);max-width:70ch;
+  border-left:3px solid var(--line-2);padding:4px 0 4px var(--s3);
+  margin-bottom:var(--s2)}
+.ai-quote .tag{margin-left:var(--s2);vertical-align:2px}
+
+.ai-verdict{display:grid;gap:3px;border:1px solid var(--line);
+  border-left:3px solid var(--iris);border-radius:0 var(--r-sm) var(--r-sm) 0;
+  padding:var(--s3);margin-top:var(--s3);background:var(--paper-2)}
+.ai-verdict.warn{border-left-color:var(--warn);background:#fdf3f0}
+.ai-verdict .k{font:600 10px/1 var(--sans);letter-spacing:.12em;
+  text-transform:uppercase;color:var(--muted)}
+.ai-verdict.warn .k{color:var(--warn)}
+.ai-verdict .v{font:400 13.5px/1.55 var(--sans);color:var(--ink);max-width:70ch}
+.ai-verdict .n{font:400 11.5px/1.5 var(--sans);color:var(--muted)}
+
+.why.risk li::before{background:var(--warn);box-shadow:none}
+
+.ai-links{list-style:none;display:grid;gap:6px}
+.ai-links li{display:flex;flex-wrap:wrap;align-items:baseline;gap:var(--s2);
+  font-size:13px}
+.ai-links a{color:var(--link);text-decoration:none;border-bottom:1px solid transparent}
+.ai-links a:hover{border-bottom-color:var(--link)}
+.ai-links .meta{font-size:11.5px;color:var(--muted-2);white-space:nowrap}
+
+.ai-tw{overflow-x:auto}
+.ai-tw table{width:100%;border-collapse:collapse;font-size:13px}
+.ai-tw th{font:600 10px/1 var(--sans);letter-spacing:.1em;text-transform:uppercase;
+  color:var(--muted);text-align:left;padding:0 var(--s3) var(--s2) 0;white-space:nowrap}
+.ai-tw td{padding:7px var(--s3) 7px 0;border-top:1px solid var(--line);
+  font-variant-numeric:tabular-nums}
+
+.ai-foot{font:400 11px/1.5 var(--sans);color:var(--muted-2);max-width:74ch;
+  margin-top:var(--s4);border-top:1px solid var(--line);padding-top:var(--s2)}
+
+/* the analyst inside an open Opportunities row: the row already sits on the
+   off-white detail surface, so the panel drops its own shadow ring */
+.ex .ai{margin-top:var(--s4)}
+.ex .ai-panel{box-shadow:none;background:var(--paper)}
+.ai-row{display:flex;flex-wrap:wrap;gap:var(--s2)}
