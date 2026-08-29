@@ -767,21 +767,57 @@ if (D.radar) {
   R.cols.forEach((c, i) => rIdx[c] = i);
   const rx = k => r => r[rIdx[k]];
 
-  /* live weights */
-  const W0 = { n1: R.meta.weights.n1, n2: R.meta.weights.n2, n3: R.meta.weights.n3, n4: R.meta.weights.n4 };
+  /* Live weights over the scorer's own arithmetic: five effective signals
+     (already shrunk toward the pool prior by their evidence weights),
+     combined as a weighted GEOMETRIC mean, then read as a percentile inside
+     the pool. Reproducing it here rather than approximating it means the
+     sliders move the real ranking, not a second looser model. */
+  const SIG = ['unmet', 'expansion', 'programme', 'seniority', 'svcsig'];
+  const WKEY = { svcsig: 'serviceability' };
+  const FLOOR = R.meta.floor || 0.05;
+  const W0 = {};
+  SIG.forEach(k => W0[k] = Math.round((R.meta.weights[WKEY[k] || k] || 0) * 100));
   const W = { ...W0 };
-  const needOf = r => {
-    const t = W.n1 + W.n2 + W.n3 + W.n4;
-    if (!t) return 0;
-    return (W.n1 * rx('n1')(r) + W.n2 * rx('n2')(r) + W.n3 * rx('n3')(r) + W.n4 * rx('n4')(r)) / t * 100;
+
+  const gmean = (r, keys) => {
+    let tw = 0, acc = 0;
+    keys.forEach(k => {
+      const w = W[k];
+      if (!w) return;
+      tw += w;
+      acc += w * Math.log(Math.max(FLOOR, rx(k)(r)));
+    });
+    return tw ? Math.exp(acc / tw) : 0;
   };
-  const oppOf = r => needOf(r) * rx('svc')(r) * rx('deal')(r);
+  const pressureOf = r => gmean(r, SIG);
+  /* the market's four signals on their own -- the half of the score that has
+     nothing to do with us */
+  const marketOf = r => gmean(r, SIG.filter(k => k !== 'svcsig'));
+
+  /* Everything on a row is a percentile of this pool, including the two
+     meters. Raw geometric means are tiny and incomparable -- "Demand 15"
+     beside "Score 91" reads as a bug, when both describe the same company. */
+  let PCT = new Map(), PDEM = new Map(), PREACH = new Map();
+  const rank01 = fn => {
+    const xs = R.rows.map(r => [r, fn(r)]).sort((a, b) => a[1] - b[1]);
+    const m = new Map();
+    xs.forEach(([r], i) => m.set(r, xs.length > 1 ? Math.round(1000 * i / (xs.length - 1)) / 10 : 100));
+    return m;
+  };
+  const repct = () => {
+    PCT = rank01(pressureOf);
+    PDEM = rank01(marketOf);
+    PREACH = rank01(r => rx('svcsig')(r));
+  };
+  repct();
+  const oppOf = r => PCT.get(r) ?? 0;
+  const demandOf = r => PDEM.get(r) ?? 0;
+  const reachOf = r => PREACH.get(r) ?? 0;
   let openKey = null;
 
   /* Score = Demand x what we can serve of it, so a collapsed row carries
      exactly those two meters and its own arithmetic is visible. The four
      components behind Demand, and everything else, live in the panel. */
-  const reachOf = r => rx('svc')(r) * rx('deal')(r) * 100;
   const meter = (cls, label, pct) => {
     const w = Math.max(1.5, Math.min(100, pct));
     return `<span class="sigrow ${cls}"><span class="k">${label}</span>`
@@ -789,10 +825,10 @@ if (D.radar) {
       + `<span class="n">${Math.round(pct)}</span></span>`;
   };
   const NEEDMIX = [
-    ['n1', 'Fresh demand'],
-    ['n2', 'Senior roles they cannot fill'],
-    ['n3', 'Hiring focused on one technology'],
-    ['n4', 'Still hiring right now'],
+    ['unmet', 'Roles they cannot fill'],
+    ['expansion', 'Hiring above their own baseline'],
+    ['programme', 'One programme, not scattered backfill'],
+    ['seniority', 'Senior roles they cannot fill'],
   ];
 
   /* One plain-English line describing what is happening at this company.
@@ -831,18 +867,18 @@ if (D.radar) {
     const dem = [], sup = [], techs = rx('techs')(r);
     const out = dem;
     const o45 = rx('open45')(r), sen = rx('senior_n')(r);
-    if (rx('n1')(r) >= 0.7)
-      out.push(`Posting new IT roles at a pace few companies here match — this demand is fresh.`);
+    if (rx('unmet')(r) >= 0.6)
+      out.push(`A high share of their IT ads is still sitting unfilled — demand they cannot close on their own.`);
     else if (o45)
       out.push(`${plural(o45, 'role has', 'roles have')} been open more than 6 weeks.`);
-    if (rx('n2')(r) >= 0.7 && sen)
+    if (rx('expansion')(r) >= 0.6)
+      out.push(`They are hiring well above their own recent baseline — this is growth, not backfill.`);
+    if (rx('programme')(r) >= 0.6 && techs.length)
+      out.push(`Hiring is concentrated in ${techs[0]} far past what a company this size would do by chance — that is one programme, not routine churn.`);
+    if (rx('seniority')(r) >= 0.6 && sen)
       out.push(`Heavy on senior and lead roles (${sen}) — the hardest and slowest to hire.`);
-    if (rx('n3')(r) >= 0.7 && techs.length)
-      out.push(`Hiring is concentrated in ${techs[0]} rather than scattered across teams — that looks like one project, not routine backfill.`);
-    if (rx('n4')(r) >= 0.7)
-      out.push(`Kept posting through the last month — this is live, ongoing demand.`);
     if (!out.length)
-      out.push(`Steady IT hiring, but nothing unusual about the pace.`);
+      out.push(`Steady IT hiring, but nothing unusual about the pattern.`);
     /* Staffing bullet: counts only roles still up (delisted ads are not
        demand anyone can staff), and explains depth instead of contradicting
        the "Can we staff it" column. */
@@ -855,12 +891,6 @@ if (D.radar) {
       sup.push(`Someone on our bench fits each of the ${tot} roles still up, but depth is thin in places.`);
     else
       sup.push(`Our bench could cover ${cov} of the ${tot} roles still up.`);
-    /* Deal size: more people on one contract = a better contract. */
-    const deal = rx('deal')(r);
-    if (deal >= 1)
-      sup.push(`Team-sized deal: enough staffable roles here to place several people at once.`);
-    else if (deal <= 0.35 && tot)
-      sup.push(`Thin deal — only about one placeable role, so it scores lower.`);
     /* the marker colour tells you whose side of the trade a line is about */
     return dem.map(t => ({t: t, sup: false})).concat(sup.map(t => ({t: t, sup: true})));
   };
@@ -889,7 +919,7 @@ if (D.radar) {
 
     const mix = NEEDMIX.map(([k, label]) => row('', label, rx(k)(r))).join('');
     const ours = row('sup', 'Depth of bench behind those roles', rx('svc')(r))
-      + row('sup', 'Deal size — how many we could place at once', rx('deal')(r));
+      + row('sup', 'What that is worth to the score', rx('svcsig')(r));
 
     const uncov = Object.keys(unc).length
       ? `<p class="uncov"><b>We cannot staff:</b> `
@@ -1289,8 +1319,8 @@ if (D.radar) {
           + `<span class="cchips">`
           + rx('techs')(r).slice(0, 3).map(t => `<span class="chip">${esc(t)}</span>`).join('')
           + `</span>` },
-      { t: 'Demand \u00d7 our reach', v: needOf, cls: 'sg', render: r =>
-          `<span class="sig">${meter('', 'Demand', needOf(r))}`
+      { t: 'Demand \u00b7 we staff', v: demandOf, cls: 'sg', render: r =>
+          `<span class="sig">${meter('', 'Demand', demandOf(r))}`
           + `${meter('sup', 'We staff', reachOf(r))}</span>` },
       { t: 'Score /100', v: oppOf, r: true, render: r => {
           const v = oppOf(r);
@@ -1304,7 +1334,7 @@ if (D.radar) {
       const noRev = $('#ra-noreview').checked;
       const out = R.rows.filter(r =>
         (!q || rx('name')(r).toLowerCase().includes(q))
-        && (!cls || rx('class')(r) === cls)
+        && (!cls || rx('segment')(r) === cls)
         && (!band || rx('band')(r) === band)
         && (!noRev || !rx('review')(r)));
       /* headline numbers describe what is on screen -- a header saying 306
@@ -1337,16 +1367,22 @@ if (D.radar) {
   });
 
   const syncW = () => {
-    ['n1', 'n2', 'n3', 'n4'].forEach(k => {
+    SIG.forEach(k => {
       W[k] = +$('#w-' + k).value;
       $('#wv-' + k).textContent = W[k];
     });
+    repct();
     openKey = null;
     renderRadar();
   };
-  ['n1', 'n2', 'n3', 'n4'].forEach(k => $('#w-' + k).oninput = syncW);
+  SIG.forEach(k => {
+    const el = $('#w-' + k);
+    el.value = W0[k];
+    $('#wv-' + k).textContent = W0[k];
+    el.oninput = syncW;
+  });
   $('#w-reset').onclick = () => {
-    ['n1', 'n2', 'n3', 'n4'].forEach(k => $('#w-' + k).value = W0[k]);
+    SIG.forEach(k => $('#w-' + k).value = W0[k]);
     syncW();
   };
   ['#ra-q', '#ra-class', '#ra-band', '#ra-noreview']
@@ -1370,17 +1406,19 @@ if (D.bench) {
   /* cells table */
   const renderCells = makeTable({
     head: '#ce-head', body: '#ce-body', count: '#ce-count', pager: '#ce-pager',
-    total: B.cells.length, noun: 'cells', sort: 6, dir: -1,
+    total: B.cells.length, noun: 'cells', sort: 3, dir: -1,
     columns: [
       { t: 'Family', v: r => r[0], cls: 'nm' },
       { t: 'Seniority', v: r => r[1] },
-      { t: 'Depth', v: r => r[2], r: true, render: r =>
-          `${fmt(r[2])}` + (r[5] ? ' <span class="tag noise" title="Below the thin-cell guard: scarcity is not ranked here">thin</span>' : '') },
-      { t: 'Available', v: r => r[3], r: true },
-      { t: 'Readiness', v: r => r[4], r: true, render: r => (r[4] * 100).toFixed(0) + '%' },
-      { t: 'Pull pct', v: r => r[7], r: true, render: r => r[7].toFixed(2) },
-      { t: 'German unfilled >45d', v: r => r[6], r: true },
-      { t: 'Scarcity pct', v: r => r[8], r: true, render: r => r[5] ? '<span style="color:var(--muted-2)">–</span>' : r[8].toFixed(2) },
+      { t: 'Technology', v: r => r[2], render: r => `<span class="chip">${esc(r[2])}</span>` },
+      { t: 'Weighted demand', v: r => r[3], r: true, render: r => r[3].toFixed(1) },
+      { t: 'Coverage gap', v: r => r[4], r: true, render: r =>
+          `<span class="svcbar"><i class="${r[4] > 0.5 ? 'low' : ''}" style="width:${(r[4]*100).toFixed(0)}%"></i></span>`
+          + `<span class="svctxt">${(r[4] * 100).toFixed(0)}%</span>` },
+      { t: 'Bench depth', v: r => r[5], r: true, render: r =>
+          `${fmt(r[5])}` + (r[5] < 3 ? ' <span class="tag noise" title="Fewer than three consultants can serve this cell">thin</span>' : '') },
+      { t: 'Vacancies', v: r => r[6], r: true },
+      { t: 'Companies', v: r => r[7], r: true },
     ],
     filter: () => B.cells,
   });

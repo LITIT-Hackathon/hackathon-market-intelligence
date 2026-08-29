@@ -196,51 +196,65 @@ def build_talent(data_dir: Path) -> dict | None:
 
 
 def build_radar(data_dir: Path) -> dict | None:
-    """Ranked opportunities + validation. None until the scorer has run."""
+    """Ranked opportunities + validation. None until the scorer has run.
+
+    Mirrors the scorer's own model: five signals, each already shrunk toward
+    the pool prior by its evidence weight, combined as a weighted geometric
+    mean and presented as a percentile. The UI ships the effective signals so
+    the weight sliders can recompute the ranking in the browser against the
+    same arithmetic rather than a second, looser model.
+    """
     path = data_dir / "opportunities.parquet"
     if not path.exists():
         return None
     opp = pd.read_parquet(path)
     checks = json.loads((data_dir / "validation.json").read_text(encoding="utf-8"))
 
-    live = opp[opp["rank"].notna()]
-    rows = [
-        [int(r.rank), r.company_name, r.company_class, bool(r.in_review),
-         float(r.opportunity), float(r.need),
-         round(float(r.n1), 4), round(float(r.n2), 4),
-         round(float(r.n3), 4), round(float(r.n4), 4),
-         float(r.serviceability), int(r.atoms_covered), int(r.atoms_uncovered),
-         json.loads(r.uncovered_families) if isinstance(r.uncovered_families, str) else {},
-         float(r.confidence), r.confidence_band,
-         int(r.it_n), int(r.open_45), int(r.open_90), int(r.senior_n),
-         int(r.median_age), list(r.top_technologies),
-         int(r.live_n), int(r.dead_n),
-         float(r.deal_size), float(r.placeable_w),
-         json.loads(r.timeline) if isinstance(r.timeline, str) else [],
-        ]
-        for r in live.itertuples()
-    ]
-    excluded = [
-        [r.company_name, int(r.it_n), int(r.median_age)]
-        for r in opp[opp["rank"].isna()].itertuples()
-    ]
+    seg_path = data_dir / "segments.parquet"
+    segments = pd.read_parquet(seg_path) if seg_path.exists() else None
+    channels = int(segments["is_channel"].sum()) if segments is not None else 0
+
+    def _j(v, default):
+        return json.loads(v) if isinstance(v, str) else (v if v is not None else default)
+
+    rows = []
+    for r in opp.itertuples():
+        tl = _j(r.timeline, [])
+        rows.append([
+            int(r.rank), r.company_name, r.segment, not bool(r.segment_verified),
+            float(r.opportunity), round(float(r.pressure), 4),
+            # the five effective signals, in config order
+            round(float(r.unmet_eff), 4), round(float(r.expansion_eff), 4),
+            round(float(r.programme_eff), 4), round(float(r.seniority_eff), 4),
+            round(float(r.serviceability_eff), 4),
+            float(r.serviceability), int(r.atoms_covered), int(r.atoms_uncovered),
+            _j(r.uncovered_families, {}),
+            float(r.confidence), r.confidence_band,
+            int(r.it_n), int(r.snap_aged_45), int(r.snap_aged_90), int(r.senior_k),
+            int(r.median_age), _j(r.top_technologies, []),
+            sum(1 for t in tl if t.get("live") is True),
+            sum(1 for t in tl if t.get("live") is False),
+            tl,
+        ])
+
     v = checks["companies"]
+    cfg = __import__("opradar.config", fromlist=["CONFIG"]).CONFIG
     return {
         "meta": {
-            "ranked": int(len(live)),
-            "excluded": len(excluded),
-            "config_hash": str(live["config_hash"].iloc[0]) if len(live) else "",
-            "weights": dict(__import__("opradar.config", fromlist=["CONFIG"]).CONFIG["need_weights"]),
+            "ranked": int(len(opp)),
+            "channels": channels,
+            "config_hash": str(opp["config_hash"].iloc[0]) if len(opp) else "",
+            "weights": dict(cfg["signal_weights"]),
+            "floor": cfg["signals"]["log_floor"],
         },
-        "cols": ["rank", "name", "class", "review", "opp", "need",
-                 "n1", "n2", "n3", "n4", "svc", "covered", "uncovered",
-                 "uncovered_families", "conf", "band", "it_n", "open45",
-                 "open90", "senior_n", "median_age", "techs",
-                 "live_n", "dead_n", "deal", "placeable", "timeline"],
+        "cols": ["rank", "name", "segment", "review", "opp", "pressure",
+                 "unmet", "expansion", "programme", "seniority", "svcsig",
+                 "svc", "covered", "uncovered", "uncovered_families",
+                 "conf", "band", "it_n", "open45", "open90", "senior_n",
+                 "median_age", "techs", "live_n", "dead_n", "timeline"],
         "rows": rows,
-        "excluded_rows": excluded,
         "validation": {
-            "v1_rho": v["v1_divergence"]["spearman_vs_volume"],
+            "v1_rho": v["v1_divergence"]["spearman_vs_it_postings"],
             "v1_verdict": v["v1_divergence"]["verdict"],
             "v2": v["v2_adversarial"]["verdict"],
             "v3_min": v["v3_sensitivity"]["min_overlap"],
@@ -251,53 +265,80 @@ def build_radar(data_dir: Path) -> dict | None:
 
 
 def build_bench(data_dir: Path) -> dict | None:
-    """Synthetic bench + people value + gap. None until the scorer has run."""
+    """Bench, per-consultant marginal value, and the capability plan.
+
+    Reads only what the current scorer writes: market_pull.parquet and
+    tech_gap.parquet belonged to the retired pipeline and are no longer
+    produced, so demand per tag and per family is derived from cells.parquet,
+    which is opportunity-weighted rather than a raw posting count.
+    """
     path = data_dir / "people_value.parquet"
     if not path.exists():
         return None
     value = pd.read_parquet(path)
     cells = pd.read_parquet(data_dir / "cells.parquet")
-    pull = pd.read_parquet(data_dir / "market_pull.parquet")
-    gap = pd.read_parquet(data_dir / "tech_gap.parquet")
+    plan = pd.read_parquet(data_dir / "capability_plan.parquet")
+    supply = pd.read_parquet(data_dir / "supply_index.parquet")
+    bench = pd.read_parquet(data_dir / "bench.parquet")
     checks = json.loads((data_dir / "validation.json").read_text(encoding="utf-8"))
+
+    def _l(v):
+        return json.loads(v) if isinstance(v, str) else list(v if v is not None else [])
+
+    thin = {(r.role_family, r.seniority): bool(r.thin_cell) for r in supply.itertuples()}
+    depth = {(r.role_family, r.seniority): int(r.depth) for r in supply.itertuples()}
+    # marginal demand is an absolute weight; the UI reads it as a band, so it
+    # is normalised to the strongest consultant on the bench
+    pull_max = max(1e-9, float(value["marginal_demand"].max()))
+    uniq_max = max(1e-9, float(value["uniqueness"].max()))
 
     cand_rows = [
         [int(r.rank), r.candidate_id, r.role_family, r.seniority,
-         int(r.years_experience), list(r.tech_tags), r.availability,
-         bool(r.speaks_german), float(r.value), float(r.market_pull),
-         float(r.scarcity), float(r.deployability), bool(r.thin_cell),
-         int(r.cell_unfilled_45), int(r.cell_depth)]
+         int(r.years_experience), _l(r.tech_tags), r.availability,
+         bool(r.speaks_german), float(r.value),
+         round(float(r.marginal_demand) / pull_max, 4),
+         round(float(r.uniqueness) / uniq_max, 4), float(r.deployability),
+         thin.get((r.role_family, r.seniority), False),
+         int(r.atoms_matched), depth.get((r.role_family, r.seniority), 0)]
         for r in value.itertuples()
     ]
     cell_rows = [
-        [r.role_family, r.seniority, int(r.depth), int(r.available_depth),
-         float(r.readiness), bool(r.thin_cell), int(r.unfilled_45),
-         float(r.market_pull), float(r.scarcity)]
-        for r in cells.itertuples()
+        [r.role_family, r.seniority, r.tech_tag, round(float(r.demand_weight), 2),
+         round(float(r.coverage_gap), 3), int(r.supply_depth), int(r.atoms),
+         int(r.companies), int(r.priority_rank)]
+        for r in plan.itertuples()
     ]
-    fam_pull = pull[pull["seniority"] == "all"]
-    depth_by_family = value.groupby("role_family").size()
+
+    have: dict[str, int] = {}
+    for tags in bench["tech_tags"]:
+        for tag in set(_l(tags)):
+            have[tag] = have.get(tag, 0) + 1
+    dem = cells.groupby("tech_tag")["atoms"].sum()
+    tags = sorted(set(dem.index) | set(have), key=lambda t: -int(dem.get(t, 0)))
+    gap = [[t, int(dem.get(t, 0)), int(have.get(t, 0))] for t in tags]
+
+    fam_dem = cells.groupby("role_family")["atoms"].sum()
+    fam_depth = value.groupby("role_family").size()
     supply_vs_pull = [
-        [r.role_family, int(depth_by_family.get(r.role_family, 0)),
-         int(r.unfilled_45), int(r.demand_postings)]
-        for r in fam_pull.itertuples()
+        [f, int(fam_depth.get(f, 0)), int(fam_dem.get(f, 0))]
+        for f in sorted(set(fam_dem.index) | set(fam_depth.index))
     ]
+
     return {
         "meta": {
             "size": int(len(value)),
             "cells": int(len(cells)),
-            "thin_cells": int(cells["thin_cell"].sum()),
+            "thin_cells": int(supply["thin_cell"].sum()),
             "german_speakers": int(value["speaks_german"].sum()),
             "people_rho": checks["people"]["value_vs_skill_count_spearman"],
         },
         "cand_cols": ["rank", "id", "family", "seniority", "years", "tags",
                       "availability", "german", "value", "pull", "scarcity",
-                      "deploy", "thin", "cell_unfilled", "cell_depth"],
+                      "deploy", "thin", "atoms", "cell_depth"],
         "cand_rows": cand_rows,
         "cells": cell_rows,
         "supply_vs_pull": supply_vs_pull,
-        "gap": [[r.category, int(r.demand_postings), int(r.bench_consultants)]
-                for r in gap.itertuples()],
+        "gap": gap,
     }
 
 
@@ -466,14 +507,11 @@ def _radar_replacements(payload: dict) -> dict:
     # across the ranked list rather than reported as pipeline internals.
     idx = {c: i for i, c in enumerate(r["cols"])}
     open_roles = sum(row[idx["it_n"]] for row in r["rows"])
-    # fresh-first drops postings past hard_cap_days, so open_90 is now
-    # structurally zero. The 45-day threshold is the longest the data
-    # still supports, and it carries the same meaning: not filled yet.
     stuck = sum(row[idx["open45"]] for row in r["rows"])
     return {
         "__R_HASH__": rm["config_hash"],
         "__R_RANKED__": f"{rm['ranked']:,}",
-        "__R_EXCL__": f"{rm['excluded']}",
+        "__R_EXCL__": f"{rm['channels']:,}",
         "__R_OPENROLES__": f"{open_roles:,}",
         "__R_STUCK__": f"{stuck:,}",
         "__R_V1__": f"{v['v1_rho']:.2f}",
@@ -633,12 +671,13 @@ TEMPLATE = r"""<!doctype html>
     <input type="search" id="ra-q" placeholder="Search for a company...">
     <select id="ra-class"><option value="">Every type of company</option>
       <option value="end_client">Businesses</option>
-      <option value="public_sector">Public sector</option></select>
+      <option value="public_sector">Public sector</option>
+      <option value="captive_it">In-house IT arms</option></select>
     <select id="ra-band"><option value="">Any amount of evidence</option>
       <option value="high">Strong evidence</option>
       <option value="medium">Some evidence</option>
       <option value="low">Thin evidence</option></select>
-    <label class="chk"><input type="checkbox" id="ra-noreview" checked> Only confirmed customers</label>
+    <label class="chk"><input type="checkbox" id="ra-noreview"> Only externally verified</label>
     <span class="count" id="ra-count"></span>
   </div>
   <div class="tw"><table><thead id="ra-head"></thead><tbody id="ra-body"></tbody></table></div>
@@ -649,19 +688,21 @@ TEMPLATE = r"""<!doctype html>
     <p class="hint">Drag a slider and the ranking re-sorts instantly. Nothing is hardcoded:
       these four things are what decide the order.</p>
     <div class="sliders">
-      <label>Fresh demand <input type="range" id="w-n1" min="0" max="50" value="35"><b id="wv-n1">35</b></label>
-      <label>Senior roles they cannot fill <input type="range" id="w-n2" min="0" max="50" value="25"><b id="wv-n2">25</b></label>
-      <label>Hiring focused on one technology <input type="range" id="w-n3" min="0" max="50" value="20"><b id="wv-n3">20</b></label>
-      <label>Still hiring right now <input type="range" id="w-n4" min="0" max="50" value="20"><b id="wv-n4">20</b></label>
+      <label>Roles they cannot fill <input type="range" id="w-unmet" min="0" max="50" value="30"><b id="wv-unmet">30</b></label>
+      <label>Hiring above their own baseline <input type="range" id="w-expansion" min="0" max="50" value="15"><b id="wv-expansion">15</b></label>
+      <label>One programme, not scattered backfill <input type="range" id="w-programme" min="0" max="50" value="22"><b id="wv-programme">22</b></label>
+      <label>Senior roles they cannot fill <input type="range" id="w-seniority" min="0" max="50" value="15"><b id="wv-seniority">15</b></label>
+      <label>How much of it we could staff <input type="range" id="w-svcsig" min="0" max="50" value="18"><b id="wv-svcsig">18</b></label>
       <button id="w-reset" class="resetbtn">Reset</button>
     </div>
   </details>
 
   <div class="note after"><b>How to read a row.</b> Each row carries two meters.
-    <em>Demand</em> is how hard this company is hiring measured against everyone else on
-    this list; <em>We staff</em> is how much of that demand our bench could actually take,
-    depth and headcount included. The score is one multiplied by the other, so a company
-    with demand we cannot serve does not reach the top. Click any row for the whole
+    <em>Demand</em> combines the four market signals — unfilled roles, hiring above their
+    own baseline, one concentrated programme, and seniority; <em>We staff</em> is how much
+    of that demand our bench could actually take. The score is the two combined and then
+    read as a percentile of this pool, so 87 means ahead of 87% of the companies here.
+    A company with demand we cannot serve does not reach the top. Click any row for the whole
     breakdown &mdash; the four things behind Demand, what we bring against them, and the
     real job ads on arbeitsagentur.de. <em>unconfirmed</em> marks companies the keyword
     rules could not classify as customer or supplier; their confidence is already
@@ -791,7 +832,7 @@ TEMPLATE = r"""<!doctype html>
   <details class="more">
     <summary>More checks</summary>
     <div class="kpis">
-      <div class="kpi"><p class="label">Companies set aside</p><p class="v num">__R_EXCL__</p>
+      <div class="kpi"><p class="label">Agencies and vendors filtered out</p><p class="v num">__R_EXCL__</p>
         <p class="n">No job ad posted in 90 days &mdash; probably abandoned listings.</p></div>
     </div>
   </details>

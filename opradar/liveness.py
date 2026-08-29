@@ -18,7 +18,9 @@ timestamp; re-runs only re-check entries older than the TTL, so the scorer
 stays deterministic between checks and a re-run costs seconds, not minutes.
 
 Kept OUT of `python -m opradar.score` on purpose: the scorer must stay
-offline-deterministic. It reads liveness.parquet if present, full stop.
+offline-deterministic. Nothing in the scoring model reads the result: it is
+attached to the eligible pool as evidence only, so the UI timeline can show
+which advertisements have since been taken down and when we found out.
 """
 
 from __future__ import annotations
@@ -79,17 +81,41 @@ def check_one(refnr: str, timeout: float = 10.0, retries: int = 1) -> tuple[str,
     return refnr, None
 
 
-def scope_refnrs(postings: pd.DataFrame, all_eligible: bool = False) -> list[str]:
-    """The postings whose liveness can move a score: the eligible pool of
-    companies with enough IT postings to be ranked (no age cap here -- the
-    check is exactly what can rescue an old-but-alive posting from the cap)."""
-    from . import signals as sig
-    elig = sig.eligible_postings(postings)
+def scope_refnrs(postings: pd.DataFrame, segments: pd.DataFrame,
+                 all_eligible: bool = False) -> list[str]:
+    """The postings worth checking: IT vacancies at companies we would rank.
+
+    Segments come from the same ladder the scorer uses, so we never spend
+    requests on agencies and vendors that can never appear as a prospect.
+    """
+    from . import features
+    elig = features.eligible_postings(postings, segments)
     if all_eligible:
         return elig["posting_id"].dropna().unique().tolist()
     counts = elig.groupby("company_key").size()
     keys = set(counts[counts >= CONFIG["min_it_postings"]].index)
     return elig.loc[elig["company_key"].isin(keys), "posting_id"].dropna().unique().tolist()
+
+
+def attach(pool: pd.DataFrame, data_dir: Path) -> pd.DataFrame:
+    """Adds `alive` and `checked_at` to an eligible pool from the cache.
+
+    Evidence only. No signal, weight or score reads these columns -- the
+    timeline needs to know which ads came down and when we observed it, and
+    that is the whole of it. Missing cache leaves both columns null and every
+    posting simply renders as unverified.
+    """
+    out = pool.copy()
+    path = data_dir / "liveness.parquet"
+    if not path.exists() or not len(pool):
+        out["alive"] = pd.Series(pd.NA, index=out.index, dtype="boolean")
+        out["checked_at"] = pd.NaT
+        return out
+    lv = pd.read_parquet(path)[["refnr", "alive", "checked_at"]].drop_duplicates("refnr")
+    out = out.merge(lv, left_on="posting_id", right_on="refnr", how="left") \
+             .drop(columns=["refnr"])
+    out["alive"] = out["alive"].astype("boolean")
+    return out
 
 
 def load_cache(path: Path) -> pd.DataFrame:
@@ -98,11 +124,24 @@ def load_cache(path: Path) -> pd.DataFrame:
     return pd.DataFrame(columns=["refnr", "alive", "status", "checked_at"])
 
 
-def run(data_dir: Path, all_eligible: bool = False, ttl_days: float | None = None,
-        concurrency: int = 12, limit: int | None = None, timeout: float = 10.0) -> pd.DataFrame:
-    ttl_days = CONFIG["liveness"]["ttl_days"] if ttl_days is None else ttl_days
+# Deliberately not in CONFIG: liveness is an evidence layer, not a scoring
+# parameter, and putting it in the config hash would imply the score moves
+# when it does not.
+DEFAULT_TTL_DAYS = 7.0
+
+
+def run(data_dir: Path, root: Path, all_eligible: bool = False,
+        ttl_days: float | None = None, concurrency: int = 12,
+        limit: int | None = None, timeout: float = 10.0) -> pd.DataFrame:
+    from . import eligibility
+    ttl_days = DEFAULT_TTL_DAYS if ttl_days is None else ttl_days
     postings = pd.read_parquet(data_dir / "postings.parquet")
-    refnrs = scope_refnrs(postings, all_eligible)
+    companies = pd.read_parquet(data_dir / "companies.parquet")
+    ba_path = data_dir / "ba_live.parquet"
+    ba = pd.read_parquet(ba_path) if ba_path.exists() else None
+    segments = eligibility.classify(
+        companies, ba, eligibility.load_curated(root / "data" / "curated_segments.csv"))
+    refnrs = scope_refnrs(postings, segments, all_eligible)
 
     cache_path = data_dir / "liveness.parquet"
     cache = load_cache(cache_path)
@@ -158,6 +197,7 @@ def main(argv: list[str] | None = None) -> int:
     root = Path(__file__).resolve().parent.parent
     p = argparse.ArgumentParser(prog="opradar.liveness")
     p.add_argument("--data", type=Path, default=root / "data" / "processed")
+    p.add_argument("--root", type=Path, default=root)
     p.add_argument("--all", action="store_true", help="check every eligible posting")
     p.add_argument("--ttl-days", type=float, default=None)
     p.add_argument("--concurrency", type=int, default=12)
@@ -167,7 +207,8 @@ def main(argv: list[str] | None = None) -> int:
     if not (args.data / "postings.parquet").exists():
         print("ERROR: run `python -m opradar` first.", file=sys.stderr)
         return 1
-    run(args.data, args.all, args.ttl_days, args.concurrency, args.limit, args.timeout)
+    run(args.data, args.root, args.all, args.ttl_days, args.concurrency,
+        args.limit, args.timeout)
     return 0
 
 

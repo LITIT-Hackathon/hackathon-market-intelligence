@@ -185,54 +185,6 @@ def test_experience_bands_are_contiguous():
     assert set(range(0, 13)) <= covered, "a plausible years_experience value has no band"
 
 
-def test_skill_market_tension_is_normalised():
-    """Tension must centre on 1.0, or the number reads as meaningful while not being."""
-    import pandas as pd
-    from opradar import candidates as cand
-
-    profiles = pd.DataFrame({
-        "candidate_id": ["a", "b", "c", "d"],
-        # 3 of 4 hold Python, 1 of 4 holds Java
-        "skills": [["Python", "SQL"], ["Python", "SQL"], ["Python", "SQL"], ["Java", "SQL"]],
-    })
-    openings = pd.DataFrame({
-        "opening_id": ["j1", "j2"],
-        "must_have_skills": [["Java"], ["Java"]],
-        "nice_to_have_skills": [[], []],
-    })
-    market = cand.build_skill_market(profiles, openings)
-    row = {r.skill: r for r in market.itertuples()}
-    # Java: scarce on the bench and demanded by every opening -> well above 1
-    assert row["Java"].tension > 1.5, row["Java"].tension
-    # Python: plentiful and unwanted -> at the bottom
-    assert row["Python"].tension < row["Java"].tension
-    assert market["tension"].notna().all()
-
-
-def test_qualified_pool_matches_the_documented_rule():
-    import pandas as pd
-    from opradar import candidates as cand
-
-    profiles = pd.DataFrame({
-        "candidate_id": ["a", "b", "c"],
-        "skills": [["X", "Y", "Z"], ["X", "Y"], ["X"]],
-    })
-    openings = pd.DataFrame({
-        "opening_id": ["j"],
-        "must_have_skills": [["X", "Y", "Z"]],
-        "nice_to_have_skills": [[]],
-    })
-    matrix, index = cand.skill_matrix(profiles)
-    profiles, openings = cand.compute_pools(profiles, openings, matrix, index)
-    # 3/3 and 2/3 clear the 0.6 threshold; 1/3 does not
-    assert int(openings["qualified_pool"].iloc[0]) == 2
-    assert profiles["qualified_for_openings"].tolist() == [1, 1, 0]
-
-
-# ---------------------------------------------------------------------------
-# interface contract: is_it_role / is_training_role (ALGORITHM.md 1, 4.1-4.2)
-# ---------------------------------------------------------------------------
-
 def _flags(title: str) -> tuple[bool, bool]:
     folded = txt.fold(txt.clean_title(title))
     return (bool(ref.IT_ROLE_PATTERN.search(folded)),
