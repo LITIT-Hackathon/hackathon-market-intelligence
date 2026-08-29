@@ -8,9 +8,10 @@ import { Timeline } from "./Timeline";
 
 /* Live weights over the scorer's own arithmetic: six effective signals
    (already shrunk toward the pool prior by their evidence weights),
-   combined as a weighted GEOMETRIC mean, then read as a percentile inside
-   the pool. Reproducing it here rather than approximating it means the
-   sliders move the real ranking, not a second looser model. */
+   combined as a weighted GEOMETRIC mean, then read as an ABSOLUTE position
+   on the model's own log scale. Reproducing it here rather than
+   approximating it means the sliders move the real ranking, not a second
+   looser model. */
 const SIG = ["unmet", "expansion", "programme", "seniority", "svcsig", "dealsig"] as const;
 type Sig = (typeof SIG)[number];
 const OURS: Sig[] = ["svcsig", "dealsig"];        /* our side of the trade */
@@ -41,15 +42,22 @@ const staffLabel = (v: number) =>
     : v > 0 ? "only part of it"
     : "none of it";
 
-/* Everything on a row is a percentile of this pool, including the two
-   meters. Raw geometric means are tiny and incomparable -- "Demand 15"
-   beside "Score 91" reads as a bug, when both describe the same company. */
-function rank01(rows: Row[], fn: (r: Row) => number): Map<Row, number> {
-  const xs = rows.map((r) => [r, fn(r)] as const).sort((a, b) => a[1] - b[1]);
-  const m = new Map<Row, number>();
-  xs.forEach(([r], i) => m.set(r, xs.length > 1 ? Math.round((1000 * i) / (xs.length - 1)) / 10 : 100));
-  return m;
-}
+/* Every number on a row -- the score and both meters -- is an ABSOLUTE
+   position on the same scale, read the way the scorer reads it.
+
+   A weighted geometric mean of signals that each live in [floor, 1] lives in
+   [floor, 1] too, and both ends mean something: the floor is a company that
+   fails every part as hard as the model allows, 1 is a company that is
+   perfect on all of them at once. The score is the position between them, on
+   the log scale the model actually multiplies in.
+
+   This replaced a percentile of the visible rows, which printed a 100 and a 0
+   for the best and worst row no matter what they scored, moved every number
+   whenever a filter changed the pool, and made the two meters incomparable
+   with each other. Nobody reaches 100: the market signals are built from
+   saturating and logistic terms that approach 1 without arriving. */
+const position = (p: number, floor: number) =>
+  100 * (1 + Math.log(Math.max(p, floor)) / -Math.log(floor));
 
 function Meter({ cls, label, pct }: { cls: string; label: string; pct: number }) {
   const w = Math.max(1.5, Math.min(100, pct));
@@ -62,16 +70,25 @@ function Meter({ cls, label, pct }: { cls: string; label: string; pct: number })
   );
 }
 
-function Tile({ k, v, cls }: { k: string; v: ReactNode; cls?: string }) {
-  return <div className={`tile ${cls || ""}`}><p className="k">{k}</p><p className="v">{v}</p></div>;
+function Tile({ k, v, cls, hint }: { k: string; v: ReactNode; cls?: string; hint?: string }) {
+  return (
+    <div className={`tile ${cls || ""}`} title={hint}>
+      <p className="k">{k}</p><p className="v">{v}</p>
+    </div>
+  );
 }
 
-function MixRow({ cls, label, frac }: { cls: string; label: string; frac: number }) {
+/* One signal, on the same absolute scale as the score above it. `v` is the
+   raw effective signal in [floor, 1]; `position` puts it where the score
+   would put it, so a reader can add these up in their head instead of
+   switching units halfway down the panel. */
+function MixRow({ cls, label, v, floor }: { cls: string; label: string; v: number; floor: number }) {
+  const pct = position(v, floor);
   return (
     <div className={`mixrow ${cls}`}>
       <span className="k">{label}</span>
-      <span className="t"><i style={{ width: `${Math.max(1.5, frac * 100).toFixed(1)}%` }} /></span>
-      <span className="n">{Math.round(frac * 100)}</span>
+      <span className="t"><i style={{ width: `${Math.max(1.5, pct).toFixed(1)}%` }} /></span>
+      <span className="n">{Math.round(pct)}</span>
     </div>
   );
 }
@@ -102,15 +119,14 @@ export function Radar({ R, on }: { R: RadarData; on: Tab }) {
       });
       return tw ? Math.exp(acc / tw) : 0;
     };
-    const PCT = rank01(R.rows, (r) => gmean(r, SIG));
     /* the market's four signals on their own -- the half of the score that has
-       nothing to do with us */
-    const PDEM = rank01(R.rows, (r) => gmean(r, MARKET));
-    const PREACH = rank01(R.rows, (r) => gmean(r, OURS));
+       nothing to do with us -- and our two, each read on the same scale as the
+       score, so "their need 78, we could staff 91" is a sentence that means
+       what it looks like it means */
     return {
-      oppOf: (r: Row) => PCT.get(r) ?? 0,
-      demandOf: (r: Row) => PDEM.get(r) ?? 0,
-      reachOf: (r: Row) => PREACH.get(r) ?? 0,
+      oppOf: (r: Row) => position(gmean(r, SIG), FLOOR),
+      demandOf: (r: Row) => position(gmean(r, MARKET), FLOOR),
+      reachOf: (r: Row) => position(gmean(r, OURS), FLOOR),
     };
   }, [R, rx, W, FLOOR]);
 
@@ -144,6 +160,8 @@ export function Radar({ R, on }: { R: RadarData; on: Tab }) {
       label: bits.length ? `filtered to ${bits.join(", ")}` : "the whole ranked pool",
     };
   }, [rows, name, q, cls, band, noRev]);
+
+  const stalePct = Math.round((R.meta.stale_weight ?? 0.5) * 100);
 
   const columns = useMemo<Column<Row>[]>(() => {
     const review = rx<boolean>("review");
@@ -200,7 +218,7 @@ export function Radar({ R, on }: { R: RadarData; on: Tab }) {
                 so on the ROW: it is the single fact that decides whether the lead
                 is callable, and it must not be something you discover only after
                 opening the panel. */}
-            {covered(r) + uncovered(r) === 0 && <> <span className="tag gone" title="Every job ad we hold for this company has since been delisted. The demand signals may still be strong, but we cannot name a role to pitch until this company is crawled again.">nothing to staff</span></>}
+            {covered(r) + uncovered(r) === 0 && <> <span className="tag gone" title={`Every job ad we hold for this company has since been delisted, so we cannot name a live role to pitch until it is crawled again. How much of their work our bench fits is measured on June's ads instead, carried at ${stalePct}% of a live reading, fitted from the companies where both can be measured. Deal size is not carried at all: the board reports how many roles are open, not what they are.`}>no live ad</span></>}
             <span className="csub">{plain(r)}</span>
             <span className="cchips">
               {techs(r).slice(0, 3).map((t, i) => <span className="chip" key={i}>{t}</span>)}
@@ -210,7 +228,7 @@ export function Radar({ R, on }: { R: RadarData; on: Tab }) {
       },
       {
         t: "Their need · what we could staff", v: demandOf, cls: "sg",
-        help: "Two separate rankings, each out of 100 against the other companies in this list — not shares of one another. Their need combines the four market signals: unfilled roles, hiring above their own baseline, one concentrated programme, and seniority. What we could staff is how much of that work our bench could actually take. A company can rank 90 on need and 20 on staffing; that is a lead we cannot serve.",
+        help: "Two absolute scores on the same 0–100 scale, so they are directly comparable with each other and with the Score column. 0 is as bad as the model allows, 100 is perfect and unreachable. Their need combines the four market signals: unfilled roles, hiring above their own baseline, one concentrated programme, and seniority. What we could staff is how much of that work our bench could actually take. A company can score 80 on need and 30 on staffing; that is a lead we cannot serve.",
         render: (r) => (
           <span className="sig">
             <Meter cls="" label="Their need" pct={demandOf(r)} />
@@ -220,7 +238,7 @@ export function Radar({ R, on }: { R: RadarData; on: Tab }) {
       },
       {
         t: "Score /100", v: oppOf, r: true,
-        help: "Demand and We staff combined as a weighted geometric mean, then read as a percentile of this pool. 87 means ahead of 87% of the companies here — it is a ranking, not an absolute rating.",
+        help: "Their need and What we could staff combined as a weighted geometric mean, then read as an absolute position between a company that fails every signal and one that is perfect on all six. Nobody scores 100 and nobody can: four of the six signals approach their maximum without ever reaching it. The best company here is in the 80s, and the number does not move when you filter the list.",
         render: (r) => {
           const v = oppOf(r);
           return (
@@ -233,7 +251,7 @@ export function Radar({ R, on }: { R: RadarData; on: Tab }) {
         },
       },
     ];
-  }, [rx, name, oppOf, demandOf, reachOf]);
+  }, [rx, name, oppOf, demandOf, reachOf, stalePct]);
 
   const setWeight = (k: Sig, v: number) => {
     setW((w) => ({ ...w, [k]: v }));
@@ -246,7 +264,7 @@ export function Radar({ R, on }: { R: RadarData; on: Tab }) {
     const key = name(r);
     setOpenKey((k) => (k === key ? null : key));
   }, [name]);
-  const expanded = useCallback((r: Row) => (name(r) === openKey ? <Detail r={r} rx={rx} /> : null), [name, openKey, rx]);
+  const expanded = useCallback((r: Row) => (name(r) === openKey ? <Detail r={r} rx={rx} floor={FLOOR} stalePct={stalePct} /> : null), [name, openKey, rx, FLOOR, stalePct]);
 
   return (
     <Screen id="radar" group="radar" on={on}>
@@ -301,8 +319,10 @@ export function Radar({ R, on }: { R: RadarData; on: Tab }) {
         {" "}<em>Demand</em> combines the four market signals — unfilled roles, hiring above their
         own baseline, one concentrated programme, and seniority; <em>We staff</em> is how much
         of that demand our bench could take &mdash; both how well we fit it and how many people
-        we could place at once, because a one-person contract is not really a contract. The score is the two combined and then
-        read as a percentile of this pool, so 87 means ahead of 87% of the companies here.
+        we could place at once, because a one-person contract is not really a contract. The score is the two combined,
+        out of a possible 100 &mdash; and 100 cannot happen, because it would need a company that is
+        simultaneously perfect on all six signals. The best company here scores in the 80s, the number is
+        absolute rather than a ranking, and it does not change when you filter the list.
         A company with demand we cannot serve does not reach the top. Click any row for the whole
         breakdown &mdash; the four things behind Demand, what we bring against them, and the
         real job ads on arbeitsagentur.de. <em>unconfirmed</em> marks companies the keyword
@@ -313,16 +333,23 @@ export function Radar({ R, on }: { R: RadarData; on: Tab }) {
 }
 
 /* ---- the detail tier: every number the collapsed row left out ---- */
-function Detail({ r, rx }: { r: Row; rx: ReturnType<typeof indexer> }) {
+function Detail({ r, rx, floor, stalePct }: { r: Row; rx: ReturnType<typeof indexer>; floor: number; stalePct: number }) {
   const company = rx<string>("name")(r);
   const dead = rx<number>("dead_n")(r) || 0, live = rx<number>("it_n")(r) - dead;
   const o45 = rx<number>("open45")(r), sen = rx<number>("senior_n")(r);
   const cov = rx<number>("covered")(r), tot = cov + rx<number>("uncovered")(r);
+  /* What the bench signals were scored on. Where nothing we hold is still up,
+     that is June's crawl at the fitted stale weight rather than a zero -- so the tiles
+     must report the same rows the meters were computed from, or the panel
+     contradicts the column beside it. */
+  const snapBench = rx<boolean>("bench_snap")(r);
+  const sCov = rx<number>("scored_cov")(r), sTot = rx<number>("scored_tot")(r);
+  const asOf = snapBench ? " (June)" : "";
   const unc = rx<Record<string, number>>("uncovered_families")(r);
   const techs = rx<string[]>("techs")(r);
   const verified = rx<boolean>("verified")(r);
   const stock = rx<number | null>("now_stock")(r), aged = rx<number | null>("now_aged")(r);
-  const svc = rx<number>("svc")(r), deal = rx<number>("deal")(r), placeable = rx<number>("placeable")(r);
+  const svc = rx<number>("svc")(r), deal = rx<number>("deal")(r);
   const tl = rx<TimelineAd[]>("timeline")(r);
 
   /* Plain reasons, driven by the same percentiles that drive the score. */
@@ -343,18 +370,25 @@ function Detail({ r, rx }: { r: Row; rx: ReturnType<typeof indexer> }) {
      demand anyone can staff), and explains depth instead of contradicting
      the "Can we staff it" column. */
   if (!tot)
-    sup.push("Every ad they were running has since been taken down — nothing left to staff today.");
+    sup.push(`Every ad they were running has since been taken down, so there is no live role to name. Judged on June's ${sTot} instead, carried at ${stalePct}% of a live reading: our bench fitted ${sCov} of them.`);
   else if (cov === tot && svc >= 0.8)
     sup.push(`Our bench covers all ${plural(tot, "role still up", "roles still up")}, with depth behind them.`);
   else if (cov === tot)
     sup.push(`Someone on our bench fits each of the ${tot} roles still up, but depth is thin in places.`);
   else
     sup.push(`Our bench could cover ${cov} of the ${tot} roles still up.`);
-  /* Deal size: more people on one contract is a different kind of deal. */
-  if (deal >= 0.95)
-    sup.push(`Team-sized: enough staffable roles here to place about ${Math.round(placeable)} people at once, not one.`);
-  else if (tot && placeable < 1.2)
-    sup.push("Thin deal — about one placeable role, which is a body-shop order rather than a project.");
+  /* Deal size: more people on one contract is a different kind of deal.
+     Said in roles, which is a real count, not in the weighted sum behind the
+     signal — that number is age x match-credit and is not a headcount, so
+     printing it as "3.7 people" was a promise the arithmetic never made.
+     Silent where nothing is live, because there the deal size is not
+     something we measured: it is the pool prior standing in for it. */
+  if (snapBench)
+    sup.push("How large a deal that is, we cannot say — sizing it needs the roles themselves, and the board gives us only a count.");
+  else if (deal >= 0.95)
+    sup.push(`Team-sized: our bench fits ${sCov} of these roles, so this is a project to lead rather than one seat to fill.`);
+  else if (tot && sCov <= 1)
+    sup.push("Thin deal — one role we could fit, which is a body-shop order rather than a project.");
 
   /* Two different observations, labelled as such. The board is today and it
      is what the score rests on; the crawl is June and it is the only thing
@@ -364,21 +398,31 @@ function Detail({ r, rx }: { r: Row; rx: ReturnType<typeof indexer> }) {
   return (
     <div className="ex">
       <div className="extiles">
+        {/* Two different observations of two different things, which is why
+            they do not agree: the board is this employer's WHOLE current IT
+            listing, ours is what survives of the sample we crawled in June.
+            They were two adjacent tiles of bare numbers and read as the same
+            count twice, so the crawl is now one tile that states the fraction
+            it is. */}
         {hasBoard && (
           <>
-            <Tile k="Open on the board today" v={stock} cls={stock ? "acc" : "zero"} />
-            <Tile k="Open there over a month" v={aged || 0} cls={aged ? "acc" : "zero"} />
+            <Tile k="Open on the board today" v={stock} cls={stock ? "acc" : "zero"}
+              hint="Every IT role this employer has listed on arbeitsagentur.de right now, counted by the board itself. This is what the score rests on." />
+            <Tile k="Of those, open over a month" v={aged || 0} cls={aged ? "acc" : "zero"}
+              hint="The board's own count of how many of those roles were published more than a month ago and are still up — roles they have failed to fill." />
           </>
         )}
-        <Tile k="From our crawl, still up" v={live} cls={live ? "" : "zero"} />
-        <Tile k="From our crawl, taken down" v={dead} cls={dead ? "" : "zero"} />
+        <Tile k="Ads we crawled in June" v={<>{live}<span className="sfx">of {live + dead} still up</span></>}
+          cls={live ? "" : "zero"}
+          hint="Our own sample, from the 2026-06-06 crawl, re-checked since. These are the only ads we hold clickable links for, which is why the timeline below is drawn from them and not from the board. A smaller number than the board's is normal: the board is everything they have listed today, this is what is left of one crawl." />
         <Tile k="Open 6+ weeks at crawl" v={o45} cls={o45 ? "" : "zero"} />
         <Tile k="Senior or lead" v={sen} cls={sen ? "" : "zero"} />
         <Tile k="Typical age" v={<>{rx<number>("median_age")(r)}<span className="sfx">days</span></>} />
-        {tot === 0
-          ? <Tile k="Roles we could fill" v="none" cls="zero" />
-          : <Tile k="Roles we could fill" v={<>{cov}<span className="sfx">of {tot}</span></>} cls="acc" />}
-        <Tile k="People we could place" v={placeable.toFixed(1)} cls="acc" />
+        {sTot === 0
+          ? <Tile k="Roles our bench fits" v="none" cls="zero" />
+          : <Tile k={"Roles our bench fits" + asOf} v={<>{sCov}<span className="sfx">of {sTot}</span></>}
+              cls={sCov ? "acc" : "zero"}
+              hint="How many of those roles at least one available consultant matches on role family, technology and seniority." />}
       </div>
       {/* Chart on the left, the reading of it on the right. The prose used to
           sit above the timeline, which left the reader scrolling between the
@@ -411,17 +455,18 @@ function Detail({ r, rx }: { r: Row; rx: ReturnType<typeof indexer> }) {
       <div className="exsig">
         <div>
           <p className="evhead">Their need, signal by signal
-            <span className="sfx">each ranked out of 100 against the rest of this list</span></p>
+            <span className="sfx">each on the same 0–100 scale as the score</span></p>
           <div className="mix">
-            {NEEDMIX.map(([k, label]) => <MixRow cls="" label={label} frac={rx<number>(k)(r)} key={k} />)}
+            {NEEDMIX.map(([k, label]) =>
+              <MixRow cls="" label={label} v={rx<number>(k)(r)} floor={floor} key={k} />)}
           </div>
         </div>
         <div>
           <p className="evhead">What we could bring
-            <span className="sfx">ranked the same way</span></p>
+            <span className="sfx">the same scale again</span></p>
           <div className="mix">
-            <MixRow cls="sup" label="Depth of bench behind those roles" frac={svc} />
-            <MixRow cls="sup" label="Deal size — people we could place at once" frac={deal} />
+            <MixRow cls="sup" label="Depth of bench behind those roles" v={svc} floor={floor} />
+            <MixRow cls="sup" label="Deal size — people we could place at once" v={deal} floor={floor} />
           </div>
         </div>
       </div>

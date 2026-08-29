@@ -255,6 +255,134 @@ def test_score_boundaries_and_types():
     assert (ranked["rank"] == np.arange(1, len(ranked) + 1)).all()
 
 
+# ---------------------------------------------------------------------------
+# what the printed number means
+# ---------------------------------------------------------------------------
+
+def test_no_company_can_reach_100_and_the_reason_is_structural():
+    """100 is not capped away, it is unreachable.
+
+    It would take a company that maxes all six signals at once. Four of them
+    are geometric means of saturating terms or a logistic curve, and those
+    approach 1 without ever arriving, so no finite company can be described
+    by this model as perfect. A ranking that prints a 100 is printing a rank.
+    """
+    ranked, *_ = _run()
+    assert ranked["opportunity"].max() < 100.0
+    assert ranked["opportunity"].min() > 0.0
+    for sig in ("unmet", "expansion", "programme", "seniority"):
+        assert ranked[sig].max() < 1.0, sig
+    # ...and the ceiling is a meaning, not a clamp: a signal set of all 1.0
+    # lands exactly on 100.
+    floor = CONFIG["signals"]["log_floor"]
+    assert abs(100.0 * (1 + np.log(1.0) / -np.log(floor)) - 100.0) < 1e-9
+
+
+def test_score_is_a_function_of_pressure_alone_not_of_rank():
+    """The percentile this replaced was a rank in disguise: it printed 100 for
+    the head whatever it scored, spaced every neighbour 100/n apart whether
+    the real gap was 7% or 0.2%, and moved when the pool changed."""
+    ranked, *_ = _run()
+    floor = CONFIG["signals"]["log_floor"]
+    expected = 100.0 * (1 + np.log(ranked["pressure"]) / -np.log(floor))
+    assert np.allclose(ranked["opportunity"], expected, atol=0.06)
+    # the old reading is kept, correctly labelled, and still pins its head at 100
+    assert ranked["percentile"].max() == 100.0
+    assert ranked["opportunity"].max() < 100.0
+
+
+def test_points_decompose_the_score_into_signal_budgets():
+    """Each signal's weight IS its point budget, and the six sum to the score.
+    That is what makes "unfilled demand is 21 of this company's 64" sayable
+    without a second model."""
+    ranked, *_ = _run()
+    pts = ranked[[f"points_{s}" for s in scoring.SIGNALS]].sum(axis=1)
+    assert np.allclose(pts, ranked["opportunity"], atol=0.1)
+    for s in scoring.SIGNALS:
+        assert (ranked[f"points_{s}"] <= ranked[f"budget_{s}"] + 1e-6).all(), s
+        assert (ranked[f"points_{s}"] >= -1e-6).all(), s
+    total = sum(float(ranked[f"budget_{s}"].iloc[0]) for s in scoring.SIGNALS)
+    assert abs(total - CONFIG["score"]["points_out_of"]) < 0.05
+
+
+def test_scattered_hiring_is_not_scored_as_hard_as_no_demand():
+    """A company whose largest 21-day cluster is two roles is doing routine
+    backfill. The brief contrasts that with a programme -- it is not the same
+    fact as having no demand at all, and must not cost the same. The burst leg
+    was the one leg of S3 without a floor, so it did."""
+    p, c, b = _scenario()
+    p = pd.concat([p, pd.DataFrame([
+        _posting(f"sp{i}", "steady", f"Entwickler {i}", age=2 + 12 * i,
+                 tech=["language"]) for i in range(8)])], ignore_index=True)
+    c = pd.concat([c, pd.DataFrame([_company("steady", "Steady GmbH", it_postings=8)])],
+                  ignore_index=True)
+    b = pd.concat([b, pd.DataFrame([_ba("steady", stock=8, it_stock=8, it_flow=1)])],
+                  ignore_index=True)
+    ranked, *_ = _run(p, c, b)
+
+    steady = ranked[ranked.company_key == "steady"].iloc[0]
+    burst = ranked[ranked.company_key == "burst"].iloc[0]
+    assert steady["burst_n"] <= 2                      # no cluster worth the name
+    assert steady["burst_strength"] == 0.0
+    assert steady["programme_eff"] > CONFIG["signals"]["log_floor"] + 1e-9
+    assert steady["points_programme"] > 0.0
+    # ...and it is still beaten on the signal by a company with a real one
+    assert burst["programme"] > steady["programme"]
+
+
+def test_a_rate_survives_its_ads_expiring_and_a_count_does_not():
+    """Every ad we hold for `stalled` has since come down, but the board says
+    it still has 50 IT roles open and reports counts rather than roles.
+
+    Serviceability is a RATE -- what share of their kind of work we can take --
+    so June's measurement still says something and is carried at reduced
+    weight. Dealsize is a COUNT, and June's count includes every role that has
+    since been filled: carrying it would credit the size of a deal that no
+    longer exists. [measured] across the pool the June rate sits +0.004 from
+    the live one, the June count +0.268 above it.
+    """
+    p, c, b = _scenario()
+    p = p.copy()
+    p["alive"] = ~p["company_key"].eq("stalled")
+    ranked, *_ = _run(p, c, b)
+
+    row = ranked[ranked.company_key == "stalled"].iloc[0]
+    floor = CONFIG["signals"]["log_floor"]
+    assert row["atoms_total"] == 0                     # nothing live to measure
+    assert bool(row["bench_from_snapshot"])
+    # the rate is carried, discounted
+    assert row["serviceability_e"] == CONFIG["signals"]["bench_stale_evidence"]
+    assert row["serviceability_eff"] > floor + 1e-9    # shrunk, not floored
+    # the count is not carried at all: unobserved, so the prior decides it
+    assert row["dealsize_e"] == 0.0
+    assert abs(row["dealsize_eff"] - row["dealsize_prior"]) < 1e-6
+    # the panel must have real counts to show, or it contradicts the meter
+    assert row["atoms_scored"] > 0
+
+    # a company with live roles we genuinely cannot cover is NOT let off:
+    # its zero is an observation and keeps its full weight.
+    others = ranked[ranked.company_key != "stalled"]
+    assert (others["serviceability_e"] == 1.0).all()
+    assert (others["dealsize_e"] == 1.0).all()
+
+
+def test_confidence_knows_when_the_bench_number_is_second_hand():
+    """A row scored on June's bench fit and on no deal size at all must not
+    read as well-evidenced. Observability covers all six signals, weighted by
+    how much of the score each carries -- it used to cover only the four
+    market ones, from when the bench pair was always 1.0."""
+    p, c, b = _scenario()
+    p = p.copy()
+    p["alive"] = ~p["company_key"].eq("stalled")
+    ranked, *_ = _run(p, c, b)
+
+    stale = ranked[ranked.company_key == "stalled"].iloc[0]
+    fresh = ranked[ranked.company_key == "burst"].iloc[0]
+    assert stale["conf_observability"] < fresh["conf_observability"]
+    # and the dent is real, not a rounding artefact
+    assert fresh["conf_observability"] - stale["conf_observability"] > 0.05
+
+
 def test_evidence_is_traceable_json_with_urls():
     ranked, *_ = _run()
     for raw in ranked["evidence"]:

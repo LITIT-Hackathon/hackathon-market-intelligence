@@ -218,11 +218,13 @@ def build_talent(data_dir: Path) -> dict | None:
 def build_radar(data_dir: Path) -> dict | None:
     """Ranked opportunities + validation. None until the scorer has run.
 
-    Mirrors the scorer's own model: five signals, each already shrunk toward
-    the pool prior by its evidence weight, combined as a weighted geometric
-    mean and presented as a percentile. The UI ships the effective signals so
-    the weight sliders can recompute the ranking in the browser against the
-    same arithmetic rather than a second, looser model.
+    Mirrors the scorer's own model: six signals, each already shrunk toward the
+    pool prior by its evidence weight, combined as a weighted geometric mean
+    and read as an ABSOLUTE position between "fails everything" and "perfect on
+    everything". The UI ships the effective signals and the floor so the weight
+    sliders can recompute the score in the browser against the same arithmetic
+    rather than a second, looser model -- and because the mapping is absolute,
+    a company's number no longer moves when a filter changes the pool.
     """
     path = data_dir / "opportunities.parquet"
     if not path.exists():
@@ -250,8 +252,12 @@ def build_radar(data_dir: Path) -> dict | None:
             round(float(r.unmet_eff), 4), round(float(r.expansion_eff), 4),
             round(float(r.programme_eff), 4), round(float(r.seniority_eff), 4),
             round(float(r.serviceability_eff), 4), round(float(r.dealsize_eff), 4),
-            float(r.serviceability), float(r.dealsize), float(r.placeable_w),
+            float(r.serviceability), float(r.dealsize),
             int(r.atoms_covered), int(r.atoms_uncovered),
+            # what the bench signals were actually measured on, and whether
+            # that was June's crawl rather than roles still up today
+            int(r.atoms_scored_covered), int(r.atoms_scored),
+            bool(r.bench_from_snapshot),
             _j(r.uncovered_families, {}),
             float(r.confidence), r.confidence_band,
             int(r.it_n), int(r.snap_aged_45), int(r.snap_aged_90), int(r.senior_k),
@@ -274,10 +280,16 @@ def build_radar(data_dir: Path) -> dict | None:
             "config_hash": str(opp["config_hash"].iloc[0]) if len(opp) else "",
             "weights": dict(cfg["signal_weights"]),
             "floor": cfg["signals"]["log_floor"],
+            # how far June's bench measurement is trusted where nothing we
+            # hold is still live -- fitted per run, so the UI must not
+            # hardcode it in its prose
+            "stale_weight": (float(opp["bench_stale_weight"].iloc[0])
+                             if "bench_stale_weight" in opp and len(opp) else 0.0),
         },
         "cols": ["rank", "name", "segment", "review", "opp", "pressure",
                  "unmet", "expansion", "programme", "seniority", "svcsig", "dealsig",
-                 "svc", "deal", "placeable", "covered", "uncovered", "uncovered_families",
+                 "svc", "deal", "covered", "uncovered",
+                 "scored_cov", "scored_tot", "bench_snap", "uncovered_families",
                  "conf", "band", "it_n", "open45", "open90", "senior_n",
                  "median_age", "techs", "live_n", "dead_n",
                  "verified", "now_stock", "now_aged", "timeline"],

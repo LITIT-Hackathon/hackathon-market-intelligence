@@ -46,7 +46,9 @@ FIELDS: dict[str, tuple[str, str]] = {
     "name":            ("company_name", "company name"),
     "segment":         ("segment", "end_client / public_sector / it_vendor / agency"),
     "rank":            ("rank", "1 is the best opportunity"),
-    "score":           ("opportunity", "0-100 percentile within the pool"),
+    "score":           ("opportunity", "0-100 absolute score; 100 is unreachable, "
+                                       "the best company in this pool is in the 80s"),
+    "percentile":      ("percentile", "how far ahead of the rest of the pool, 0-100"),
     "confidence":      ("confidence_band", "low / medium / high"),
     "ads_june":        ("it_n", "IT ads we crawled in June"),
     "open_now":        ("now_it_stock", "IT roles open on the board today"),

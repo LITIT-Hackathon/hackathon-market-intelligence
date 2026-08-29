@@ -41,11 +41,27 @@ THE THREE STATISTICAL PROBLEMS THIS FILE EXISTS TO SOLVE
        silently priced into the rank.
 
 WHAT THE NUMBER MEANS
-    `opportunity` is a percentile within the eligible pool: 87 means "ahead of
-    87% of the German companies in this pool". That is the only claim the data
-    supports -- there are no labels, so no absolute calibration is available and
-    a 0-100 absolute score would be false precision. `pressure` carries the raw
-    geometric mean for cross-run comparison.
+    `opportunity` is an ABSOLUTE score out of 100, read off the model's own log
+    scale. Every effective signal lives in [log_floor, 1], so their weighted
+    geometric mean `pressure` does too, and the two ends are meanings rather
+    than artefacts: the floor is a company that fails every dimension as hard
+    as the model allows, and 1.0 is a company that maxes all six at once. The
+    score is the row's position between them.
+
+    NOBODY CAN SCORE 100, and not because it is capped. Four of the six signals
+    are geometric means of saturating terms or logistic curves, all of which
+    approach 1 without ever reaching it, so a perfect company is not a company
+    this model can describe. On the shipped pool the best row is in the mid-70s
+    and the worst is around 18 -- a company at the bottom of this board is still
+    not the worst company the model can imagine, and saying so is the point.
+
+    This replaced a percentile of the pool, which printed 100 for the top row
+    whatever it scored, spaced every neighbour exactly 100/n apart whether the
+    real gap was 7% or 0.2%, and moved a company's score when an unrelated
+    company joined the pool. `percentile` keeps that reading beside the score,
+    because "ahead of 87% of the pool" is a fair sentence -- it is just not a
+    rating. `pressure` carries the raw geometric mean for cross-run comparison,
+    and `points_*` decompose the score into each signal's share of it.
 """
 
 from __future__ import annotations
@@ -131,6 +147,71 @@ def excess_concentration(counts: dict, pool_hhi: float) -> float:
     return float(np.clip((hhi - expected) / (1.0 - expected), 0.0, 1.0))
 
 
+def fit_stale_weight(live: pd.Series, snap: pd.Series, paired: pd.Series) -> float:
+    """How far to trust June's serviceability where the live one cannot exist.
+
+    Fitted, not chosen. This is the textbook shrinkage weight for a quantity
+    observed with error,
+
+        w = var(signal) / (var(signal) + var(noise))
+
+    estimated on the companies where BOTH numbers can be computed: `signal` is
+    how much the live rate genuinely varies between companies, `noise` is how
+    far June's reading of the same company misses it.
+
+    It replaced a constant borrowed from S1's snapshot proxy, and the borrowing
+    was wrong in a way that mattered. [measured] over 65 paired companies June's
+    rate carries a bias of +0.004 and a mean absolute error of 0.065, against
+    0.163 for the pool prior -- it is two and a half times the better estimate,
+    and the borrowed 0.5 was throwing half of that away in favour of a prior
+    that happens to sit high. Which is generous in exactly the wrong direction:
+    it flattered the companies we can see least. The fitted weight is 0.79 on
+    this pool, and raising it DEMOTES them, because it stops handing them the
+    pool median for half their bench score.
+
+    Falls back to the stated constant when too few companies carry both
+    readings for the variances to mean anything.
+    """
+    if int(paired.sum()) < CONFIG["stats"]["prior_min_rows"]:
+        return float(CONFIG["signals"]["bench_stale_evidence"])
+    a = live[paired].astype(float)
+    b = snap[paired].astype(float)
+    signal = float(a.var(ddof=1))
+    noise = float((b - a).var(ddof=1))
+    if signal <= 0 or noise <= 0:
+        return float(CONFIG["signals"]["bench_stale_evidence"])
+    return float(np.clip(signal / (signal + noise), 0.0, 1.0))
+
+
+def blend(*legs):
+    """Geometric mean of the legs of ONE signal.
+
+    A signal assembled from several sub-observations that must all hold is a
+    conjunction, and this file already argues, at the top, that the right form
+    for a conjunction is a weighted geometric mean rather than a raw product:
+    a product requires every dimension to be non-trivial, and a geometric mean
+    does that WITHOUT collapsing the scale. The signals were not obeying their
+    own rule internally. A product of three sub-unit legs cannot reach the
+    scale of a single observation, so a signal built that way can never spend
+    the weight the config gives it:
+
+        [measured] `programme` -- nominal weight 0.20, the second heaviest of
+        six -- had a pool maximum of 0.211 against serviceability's 1.000, and
+        delivered 2.5% of the ranking's variance against serviceability's
+        37.5%. As a geometric mean of the same three legs its maximum is 0.595,
+        which is the scale the rest of the model is already on.
+
+    The legs, their floors and their ordering are untouched; only the scale
+    is, so nothing about which company beats which ON THIS SIGNAL changes.
+    What changes is how much of the ranking the signal is allowed to decide,
+    which is what its weight was supposed to say in the first place.
+    """
+    prod = legs[0]
+    for leg in legs[1:]:
+        prod = prod * leg
+    return np.clip(prod, 0.0, None) ** (1.0 / len(legs))
+
+
 def _pct(s: pd.Series) -> pd.Series:
     return s.rank(pct=True, method="average")
 
@@ -179,7 +260,8 @@ def signals(feats: pd.DataFrame) -> pd.DataFrame:
     a1, b1 = fit_beta_prior(k_unmet.fillna(0), n_unmet.fillna(0))
     f["unmet_rate"] = eb_rate(k_unmet.fillna(0), n_unmet.fillna(0), a1, b1).round(4)
     f["unmet_count"] = k_unmet.fillna(0)
-    f["unmet"] = (f["unmet_rate"] * saturate(f["unmet_count"], cfg["unmet_half"])).round(4)
+    f["unmet"] = blend(f["unmet_rate"],
+                       saturate(f["unmet_count"], cfg["unmet_half"])).round(4)
     f["unmet_e"] = np.where(live, 1.0, cfg["unmet_proxy_evidence"])
 
     # =====================================================================
@@ -226,11 +308,25 @@ def signals(feats: pd.DataFrame) -> pd.DataFrame:
     f["burst_strength"] = (burst_share * np.clip(burst_mag, 0, 1)).round(4)
     f["excess_concentration"] = [round(excess_concentration(c or {}, pool_hhi), 4)
                                  for c in f["tech_counts"]]
-    f["programme"] = (f["burst_strength"]
-                      * f["excess_concentration"].clip(lower=cfg["programme_conc_floor"])
-                      * f["team_shape"].clip(lower=cfg["programme_shape_floor"])).round(4)
-    # evidence: a stack claim needs postings that actually name a technology
-    f["programme_e"] = np.clip(f["tech_covered_n"] / cfg["programme_tech_evidence"], 0, 1)
+    #   The three legs combine as a GEOMETRIC MEAN, not a raw product: a
+    #   product of three sub-unit numbers cannot reach the scale of the other
+    #   five signals, which is how a 0.20 weight came to decide 2.5% of the
+    #   ranking. See `blend`. Zero on any leg is still zero on the signal,
+    #   which is the conjunctive property this signal exists for.
+    f["programme"] = blend(
+        f["burst_strength"].clip(lower=cfg["programme_burst_floor"]),
+        f["excess_concentration"].clip(lower=cfg["programme_conc_floor"]),
+        f["team_shape"].clip(lower=cfg["programme_shape_floor"])).round(4)
+    # Evidence, on two grounds, and the weaker one wins. A stack claim needs
+    # postings that actually name a technology; a SHAPE claim needs enough
+    # postings for a cluster to be a fact about the company rather than about
+    # how many of its advertisements our one crawl happened to catch. Three
+    # ads cannot exhibit "eight vacancies inside twelve days" -- for them this
+    # signal is not weak evidence, it is no evidence, and the model's standing
+    # rule for no evidence is the pool prior plus a dent in confidence.
+    f["programme_e"] = np.minimum(
+        np.clip(f["tech_covered_n"] / cfg["programme_tech_evidence"], 0, 1),
+        np.clip(f["it_n"] / cfg["programme_volume_evidence"], 0, 1))
 
     # =====================================================================
     # S4 -- SENIORITY PRESSURE
@@ -244,8 +340,8 @@ def signals(feats: pd.DataFrame) -> pd.DataFrame:
     # =====================================================================
     a4, b4 = fit_beta_prior(f["senior_k"], f["senior_n_known"])
     f["senior_rate"] = eb_rate(f["senior_k"], f["senior_n_known"], a4, b4).round(4)
-    f["seniority"] = (f["senior_rate"]
-                      * saturate(f["senior_k"], cfg["senior_half"])).round(4)
+    f["seniority"] = blend(f["senior_rate"],
+                           saturate(f["senior_k"], cfg["senior_half"])).round(4)
     f["seniority_e"] = np.clip(f["senior_n_known"] / cfg["senior_evidence"], 0, 1)
 
     f["prior_alpha_unmet"], f["prior_beta_unmet"] = round(a1, 3), round(b1, 3)
@@ -281,9 +377,19 @@ def confidence(scored: pd.DataFrame) -> pd.DataFrame:
                np.where(s["segment_verified"] | s["live_verified"], c["verify_partial"],
                         c["verify_none"]))
 
-    # 3. how much of the score rests on observed rather than imputed input
-    ev_cols = [f"{k}_e" for k in ("unmet", "expansion", "programme", "seniority")]
-    observability = s[ev_cols].astype(float).mean(axis=1)
+    # 3. how much of the score rests on observed rather than imputed input.
+    #    ALL SIX, weighted by how much of the score each one carries. This
+    #    listed only the four market signals back when the two bench evidence
+    #    weights were the constant 1.0 and adding them would have moved
+    #    nothing. They are not constant any more -- a company whose every
+    #    advertisement has come down is scored on June's bench fit and on no
+    #    deal size at all -- and leaving them out let exactly the rows with the
+    #    least visible evidence read "high confidence": [measured] Deutsche
+    #    Telekom, with not one live vacancy we can see, was one of them.
+    w_sig = CONFIG["signal_weights"]
+    tot_w = sum(w_sig.values())
+    observability = sum(
+        (w_sig[k] / tot_w) * s[f"{k}_e"].astype(float) for k in SIGNALS)
 
     # 4. do the signals agree? Four signals pointing the same way is a stronger
     #    case than one spike and three blanks, and disagreement is exactly what
@@ -428,24 +534,69 @@ def score(feats: pd.DataFrame, serviceability: pd.DataFrame,
     s["placeable_w"] = s["placeable_w"].fillna(0.0)
     s["atoms_total"] = s["atoms_total"].fillna(0)
 
-    # Both bench signals are FULLY OBSERVED, always -- do not shrink them.
+    # THE BENCH SIGNALS MUST NOT SCORE THE AGE OF OUR OWN CRAWL.
     #
-    # They answer "how many of this company's roles could we staff today", and
-    # our data always answers that question. When every advertisement we hold
-    # has since been delisted the answer is 0. That is an observation, not a
-    # gap: a 404 from the board is the board telling us the role is gone.
+    # They answer "how much of this company's unfilled demand could we staff",
+    # measured over the vacancies we hold that are still live. Where at least
+    # one survives, that is a full observation and is scored as one -- a
+    # company with live roles we cannot cover has genuinely earned a zero, and
+    # handing it the pool median instead was the regression that put six
+    # unstaffable companies in the top 20.
     #
-    # Weighting these by surviving atom count was a regression. It gave every
-    # company with nothing left to fill the pool-MEDIAN bench score for free,
-    # which ranked them above companies whose roles we can actually cover:
-    # [measured] 52 of the 65 companies with live roles scored below the free
-    # prior, and 6 companies with zero fillable roles sat in the top 20.
+    # Where NONE survives there is nothing to measure, and scoring it as zero
+    # is a statement about our snapshot rather than about the company:
+    # [measured] 77 companies were floored on both bench signals for that
+    # reason, 48 of them have IT roles open on today's board, and one of them
+    # is Deutsche Telekom -- 37 open, 32 of them open past a month -- sitting
+    # at rank 42. The board reports counts, not roles, so it cannot tell us
+    # what those 37 are; that is missing evidence, which this model shrinks
+    # toward the prior rather than scores as bad news.
     #
-    # Companies we never checked are still not punished -- `match.live_atoms`
-    # drops only CONFIRMED-dead vacancies and keeps unknown ones, so an
-    # unchecked company is measured exactly as it was before liveness existed.
-    s["serviceability_e"] = 1.0
-    s["dealsize_e"] = 1.0
+    # So the fallback is the same arithmetic over the vacancies we DO hold,
+    # at the reduced weight S1 already uses for its own snapshot proxy. The
+    # weaker claim is stated: the roles they advertise now look like the roles
+    # they advertised in June. It is not a free pool median -- it is this
+    # company's own measured bench fit, discounted for being out of date.
+    #
+    # ONLY SERVICEABILITY GETS THAT FALLBACK, AND THE REASON IS MEASURABLE.
+    # Serviceability is a RATE -- what share of this company's kind of work our
+    # bench can take -- and a rate survives its advertisements expiring:
+    # [measured] over the 65 companies where both can be computed, June's rate
+    # differs from the live one by +0.004, and is the higher of the two on only
+    # 23 of them. Dealsize is a COUNT, and a count does not survive: the same
+    # comparison puts June +0.268 above live, because June still contains every
+    # role that has since been filled or withdrawn. Falling back on it would
+    # hand a company credit for the size of a deal that no longer exists.
+    #
+    # So dealsize takes no fallback at all. We cannot see today's roles, the
+    # board gives counts rather than roles, and "how many people could we place
+    # on this" is therefore unobserved -- which this model answers with the pool
+    # prior and a dent in confidence, not with a number.
+    # (Estimating it as June's coverage rate x today's open count was the other
+    # candidate. It stacks an inference on an extrapolation, throws away the
+    # atom weighting the rate itself is built from, and is GENEROUS where the
+    # honest answer is silence: it would have given Deutsche Telekom a full
+    # 10 of 10.)
+    held = s["atoms_total"].fillna(0).astype(float) > 0
+    # fitted BEFORE the fallback overwrites the live column it is fitted on
+    stale_w = fit_stale_weight(s["serviceability"], s.get("serviceability_snap",
+                                                          s["serviceability"]),
+                               held & s.get("serviceability_snap", s["serviceability"]).notna())
+    for name in ("serviceability", "placeable_w"):
+        snap = s.get(f"{name}_snap")
+        snap = s[name] if snap is None else snap.fillna(0.0)
+        s[name] = s[name].where(held, snap)
+    s["serviceability_e"] = np.where(held, 1.0, stale_w)
+    s["dealsize_e"] = np.where(held, 1.0, 0.0)
+    s["bench_from_snapshot"] = ~held
+    s["bench_stale_weight"] = round(stale_w, 4)
+
+    # What the two bench signals were actually computed on, so no reader is
+    # ever shown "we could staff 74" beside "roles we could fill: none of 0".
+    s["atoms_scored"] = s["atoms_total"].where(held, s.get("atoms_held", 0)).fillna(0).astype(int)
+    s["atoms_scored_covered"] = (s["atoms_covered"]
+                                 .where(held, s.get("atoms_covered_snap", 0))
+                                 .fillna(0).astype(int))
 
     w = CONFIG["signal_weights"]
     floor = CONFIG["signals"]["log_floor"]
@@ -475,9 +626,39 @@ def score(feats: pd.DataFrame, serviceability: pd.DataFrame,
 
     s = confidence(s)
 
-    # Presentation: a percentile inside the pool. Absolute calibration would be
-    # false precision -- there are no labels to calibrate against.
-    s["opportunity"] = (100 * _pct(s["pressure"])).round(1)
+    # ---- the printed score ------------------------------------------------
+    # An ABSOLUTE position on the model's own log scale, not a percentile.
+    # `pressure` lives in [floor, 1] because every effective signal does, and
+    # both ends are meanings: the floor is a company that fails every dimension
+    # as hard as the model allows, 1.0 is one that maxes all six at once.
+    #
+    #     opportunity = 100 * (1 + log(pressure) / -log(floor))
+    #
+    # Nobody reaches 100, and not because of a cap: `unmet`, `seniority` and
+    # `programme` are geometric means of saturating terms and `expansion` is a
+    # logistic, so all four approach 1 without arriving. `pressure` would have
+    # to be exactly 1. The pool's best company reaches the mid-70s.
+    #
+    # What this fixes, over the percentile it replaces: the top row no longer
+    # prints 100 by construction; a 0.7-point gap no longer means a 7% drop at
+    # the top of the board and a 0.2% drop in the middle; and a company's score
+    # no longer moves when an unrelated company joins the pool. The percentile
+    # is kept beside it, because "ahead of 87% of the pool" is still a fair
+    # sentence -- it is just not a rating.
+    span = -np.log(floor)
+    s["opportunity"] = (100.0 * (1.0 + np.log(s["pressure"]) / span)).round(1)
+    s["percentile"] = (100 * _pct(s["pressure"])).round(1)
+
+    # The same number, decomposed into points. Each signal's weight IS its
+    # budget -- unmet can award 27 of the 100, dealsize 10 -- and it awards the
+    # share of that budget equal to its own position on the same log scale.
+    # These six columns sum to `opportunity` exactly, so "unfilled demand is 21
+    # of this company's 64 points" needs no second model to say.
+    out_of = CONFIG["score"]["points_out_of"]
+    for name in SIGNALS:
+        pos = 1.0 + np.log(s[f"{name}_eff"].astype(float)) / span
+        s[f"points_{name}"] = (out_of * (w[name] / total_w) * pos).round(2)
+        s[f"budget_{name}"] = round(out_of * w[name] / total_w, 2)
 
     if evidence:
         cites = (_narrow(eligible_pool, _EVIDENCE_COLS).groupby("company_key")

@@ -100,19 +100,26 @@ def atom_match(atom_rank, atom_tags: set, candidates: list[dict]
     return best, len(ids), ids
 
 
-def live_atoms(grp: pd.DataFrame) -> pd.DataFrame:
-    """Drop vacancies `opradar.liveness` confirmed are gone.
+def dead_mask(grp: pd.DataFrame) -> np.ndarray:
+    """Positional mask of vacancies `opradar.liveness` confirmed are gone.
 
     A delisted advertisement is not demand anyone can be placed into, so it
     cannot support a claim about what we could staff -- counting it is what
     produced "we can cover 4 of 4 roles" under a panel showing one live ad.
     Unknown liveness is kept: never checked is not the same as checked and
     gone. Where the column is absent entirely nothing is dropped.
+
+    Positional rather than index-based because the caller walks the group with
+    `itertuples`, and the pool's index is whatever survived the filters.
     """
     if "alive" not in grp.columns:
-        return grp
-    dead = (grp["alive"].astype("boolean") == False).fillna(False)  # noqa: E712
-    return grp[~dead.to_numpy(dtype=bool)]
+        return np.zeros(len(grp), dtype=bool)
+    return (grp["alive"].astype("boolean") == False).fillna(False).to_numpy(dtype=bool)  # noqa: E712
+
+
+def live_atoms(grp: pd.DataFrame) -> pd.DataFrame:
+    """The rows of `grp` that are not confirmed dead. See `dead_mask`."""
+    return grp[~dead_mask(grp)]
 
 
 def _atoms(grp: pd.DataFrame):
@@ -122,50 +129,99 @@ def _atoms(grp: pd.DataFrame):
         yield atom, rank, tags
 
 
+class _Tally:
+    """Running totals for one company over one set of demand atoms."""
+
+    __slots__ = ("weight", "score", "placeable", "covered", "uncovered",
+                 "strong", "families")
+
+    def __init__(self) -> None:
+        self.weight = self.score = self.placeable = 0.0
+        self.covered = self.uncovered = self.strong = 0
+        self.families: dict[str, int] = {}
+
+    def add(self, w: float, coverage: float, depth: float, family: str) -> None:
+        m = CONFIG["match"]
+        self.weight += w
+        self.score += w * (m["coverage_weight"] * coverage + m["depth_weight"] * depth)
+        # heads we could actually put on this contract, discounted by how well
+        # each one fits and how fresh the vacancy is
+        self.placeable += w * coverage
+        self.strong += int(coverage >= m["strong_coverage"])
+        if coverage > 0:
+            self.covered += 1
+        else:
+            self.uncovered += 1
+            self.families[family] = self.families.get(family, 0) + 1
+
+    @property
+    def ratio(self) -> float:
+        return round((self.score / self.weight) if self.weight else 0.0, 4)
+
+    @property
+    def deal(self) -> float:
+        return round(min(1.0, self.placeable / CONFIG["match"]["deal_saturation"]), 4)
+
+
 def serviceability(eligible_pool: pd.DataFrame, bench: pd.DataFrame) -> pd.DataFrame:
-    """One row per company: serviceability in [0, 1] plus its decomposition."""
+    """One row per company: serviceability in [0, 1] plus its decomposition.
+
+    Measured twice over the same atoms, because the two answers are different
+    claims and the scorer needs both:
+
+      `serviceability` / `dealsize`      over vacancies still live. The claim
+                                         is about roles that exist today, so a
+                                         delisted advertisement cannot support
+                                         it.
+      `serviceability_snap` / `_snap`    over every vacancy we hold, live or
+                                         since delisted -- June's crawl. Weaker
+                                         and stated as such, but it is a real
+                                         measurement of the kind of work this
+                                         company puts on the board, and it is
+                                         the only thing left to say when every
+                                         ad we hold has since come down.
+
+    Which one is scored, and at what evidence weight, is `scoring.score`'s
+    decision -- this function only refuses to throw the second one away.
+    """
     m = CONFIG["match"]
     by_family = bench_by_family(bench)
 
     rows = []
     for key, grp in eligible_pool.groupby("company_key"):
-        grp = live_atoms(grp)
-        weight_sum = score_sum = placeable = 0.0
-        covered = uncovered = strong = 0
-        uncovered_families: dict[str, int] = {}
+        live = _Tally()
+        held = _Tally()
+        dead = dead_mask(grp)
 
-        for atom, rank, tags in _atoms(grp):
+        for i, (atom, rank, tags) in enumerate(_atoms(grp)):
             coverage, n_match, _ = atom_match(rank, tags, by_family.get(atom.role_family, []))
             depth = min(1.0, n_match / m["depth_saturation"])
             w = atom_weight(atom.posting_age_days)
 
-            weight_sum += w
-            score_sum += w * (m["coverage_weight"] * coverage + m["depth_weight"] * depth)
-            # heads we could actually put on this contract, discounted by how
-            # well each one fits and how fresh the vacancy is
-            placeable += w * coverage
-
-            strong += int(coverage >= m["strong_coverage"])
-            if coverage > 0:
-                covered += 1
-            else:
-                uncovered += 1
-                uncovered_families[atom.role_family] = \
-                    uncovered_families.get(atom.role_family, 0) + 1
+            held.add(w, coverage, depth, atom.role_family)
+            if not dead[i]:
+                live.add(w, coverage, depth, atom.role_family)
 
         rows.append({
             "company_key": key,
-            "serviceability": round((score_sum / weight_sum) if weight_sum else 0.0, 4),
-            "placeable_w": round(placeable, 2),
-            "dealsize": round(min(1.0, placeable / m["deal_saturation"]), 4),
-            "atoms_total": covered + uncovered,
-            "atoms_covered": covered,
-            "atoms_strong": strong,
-            "atoms_uncovered": uncovered,
+            "serviceability": live.ratio,
+            "placeable_w": round(live.placeable, 2),
+            "dealsize": live.deal,
+            "atoms_total": live.covered + live.uncovered,
+            "atoms_covered": live.covered,
+            "atoms_strong": live.strong,
+            "atoms_uncovered": live.uncovered,
+            # the same arithmetic over the crawl, kept for the fallback
+            "serviceability_snap": held.ratio,
+            "dealsize_snap": held.deal,
+            "placeable_w_snap": round(held.placeable, 2),
+            "atoms_held": held.covered + held.uncovered,
+            "atoms_covered_snap": held.covered,
             # JSON string, not a dict: pyarrow unions dict keys across rows on
             # the parquet round-trip and nulls the gaps, corrupting the counts
             "uncovered_families": json.dumps(dict(sorted(
-                uncovered_families.items(), key=lambda kv: -kv[1]))),
+                (live if live.weight else held).families.items(),
+                key=lambda kv: -kv[1]))),
         })
     return pd.DataFrame(rows)
 

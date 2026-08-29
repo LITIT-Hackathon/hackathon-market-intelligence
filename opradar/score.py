@@ -87,8 +87,14 @@ def run(data_dir: Path, root: Path, *, validate: bool = True) -> dict:
     _log("[4/7] bench + serviceability (Layer C)")
     bench = bench_gen.generate()
     svc = match.serviceability(pool, bench)
-    _log(f"      serviceability: mean {svc['serviceability'].mean():.2f}, "
-         f"min {svc['serviceability'].min():.2f}, max {svc['serviceability'].max():.2f}")
+    stale = int((svc["atoms_total"] == 0).sum())
+    _log(f"      serviceability over live vacancies: mean "
+         f"{svc.loc[svc.atoms_total > 0, 'serviceability'].mean():.2f}, "
+         f"min {svc.loc[svc.atoms_total > 0, 'serviceability'].min():.2f}, "
+         f"max {svc['serviceability'].max():.2f}")
+    if stale:
+        _log(f"      {stale} companies have no vacancy still live -- scored on "
+             f"June's crawl at {CONFIG['signals']['bench_stale_evidence']} evidence")
 
     _log("[5/7] Algorithm A -- company opportunity")
     ranked = scoring_mod.score(feats, svc, pool)
@@ -158,10 +164,15 @@ def report(ranked: pd.DataFrame, plan: pd.DataFrame, value: pd.DataFrame,
         "",
         f"Config `{config_hash()}`. {len(ranked)} companies ranked.",
         "",
-        "`opportunity` is a **percentile within this pool** -- 87 means ahead of "
-        "87% of the eligible German companies we can see. There are no labels, "
-        "so no absolute calibration exists and claiming one would be false "
-        "precision. `pressure` is the underlying weighted geometric mean.",
+        "`opportunity` is an **absolute score out of 100**: the row's position "
+        "between a company that fails every signal as hard as the model allows "
+        "and one that maxes all six at once. Nobody can reach 100 -- four of "
+        "the six signals are saturating or logistic and approach 1 without "
+        "arriving -- so the top of this board sits in the 80s and that is the "
+        "honest ceiling. `percentile` is the old pool-relative reading, kept "
+        "beside it; `pressure` is the underlying weighted geometric mean, and "
+        "the six `points_*` columns decompose the score into each signal's "
+        "share of it.",
         "",
         "## Top 15 opportunities",
         "",

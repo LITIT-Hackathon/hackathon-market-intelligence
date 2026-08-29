@@ -102,12 +102,29 @@ CONFIG: dict = {
         "burst_half": 3.0,
         # Floors keep the three-way product from zeroing on one weak leg while
         # still requiring all three to be present for a high score. [stated]
+        # The burst leg was the one leg without one, which made "their largest
+        # 21-day cluster was two roles" -- ordinary scattered hiring -- cost
+        # exactly as much as having no demand at all. It gets the same floor as
+        # concentration, for the same stated reason: routine backfill is not
+        # the pattern we are looking for, but it is not disqualifying either.
+        "programme_burst_floor": 0.1,
         "programme_conc_floor": 0.1,
         "programme_shape_floor": 0.25,
         # A stack claim needs postings that actually name a technology.
         # [measured] tech coverage is 50.4% of eligible postings, so three
         # tech-bearing ads is a realistic bar for full evidence.
         "programme_tech_evidence": 3.0,
+        # ...and a SHAPE claim needs enough advertisements for a cluster to be
+        # a fact about the company rather than about our crawl. With three ads
+        # in hand the largest possible 21-day cluster is three, so "burst_n = 2"
+        # carries almost no information. [measured] Schwarz Digits has 3 ads in
+        # the June crawl and 85 IT roles on the board today, 79 of them open
+        # past a month -- the highest unmet-demand score in the pool -- and that
+        # 2 scored its programme signal at zero and dropped it to rank 57.
+        # Eight is the bar: [measured] the pool median company holds 4 eligible
+        # IT ads and the 90th percentile holds 12, so at eight a three-role
+        # cluster is a real minority of a real sample.
+        "programme_volume_evidence": 8.0,
 
         # S4. Three senior roles is half the magnitude signal; four postings
         # with a known seniority is full evidence. [measured] seniority is
@@ -115,6 +132,25 @@ CONFIG: dict = {
         # above-average company.
         "senior_half": 3.0,
         "senior_evidence": 4.0,
+
+        # S5/S6. When every vacancy we hold for a company has since been
+        # delisted there is nothing live left to match the bench against, and
+        # the live board reports COUNTS rather than roles, so it cannot fill
+        # the gap. Serviceability then falls back to the same arithmetic over
+        # the vacancies we do hold -- June's crawl -- making the weaker claim
+        # that the roles they advertise now look like the roles they advertised
+        # in June. [measured] without any fallback, 77 companies scored 0 on
+        # both bench signals purely because our crawl aged out, including
+        # Deutsche Telekom with 37 IT roles open on the board today and 32 of
+        # them open past a month.
+        #
+        # HOW FAR to trust that is FITTED at run time by `fit_stale_weight`,
+        # from the companies that carry both readings -- the same practice as
+        # the Beta priors above, and for the same reason: a borrowed constant
+        # here was quietly wrong. This value is only the fallback for a pool too
+        # small to fit on. [measured] the fitted weight is 0.79 on the shipped
+        # pool, against the 0.5 that had been copied from S1's proxy.
+        "bench_stale_evidence": 0.5,
     },
 
     # ---- how the signals combine -----------------------------------------
@@ -147,6 +183,38 @@ CONFIG: dict = {
         # is a QUALITY measure and saturates at "we fit"; on its own it ranks a
         # perfectly covered single vacancy level with a covered team.
         "dealsize": 0.10,
+    },
+
+    # ---- what the printed score means ------------------------------------
+    # `pressure` is the weighted geometric mean of six signals, each of which
+    # lives in [log_floor, 1]. So pressure lives there too, and both ends are
+    # meanings rather than artefacts: the floor is a company that fails every
+    # dimension as hard as the model allows, and 1.0 is a company that maxes
+    # all six at once. `opportunity` is the row's position between them, on
+    # the log scale the model actually works in, x100.
+    #
+    # This replaces a percentile of the pool, which had three problems.
+    # [measured] the top row printed 100 by construction whatever it scored,
+    # and this pool's best company reaches 0.46 of the model's own maximum; a
+    # pool of three no-hopers would still print a 100. The gaps were uniform
+    # -- rank 1->2 is a 7.1% drop in pressure and rank 20->21 is 0.2%, and
+    # both printed as the same 0.7 points. And a company's score moved when an
+    # unrelated company entered the pool.
+    #
+    # 100 is unreachable structurally, not by a cap: `unmet`, `seniority`,
+    # `expansion` and `programme` are all built from saturating or logistic
+    # terms that approach 1 without ever arriving, so no finite company can
+    # score them all at 1. The percentile is still computed and kept in
+    # `percentile`, because "ahead of 87% of the pool" is a fair sentence --
+    # it is just not a rating.
+    "score": {
+        # Each signal's weight IS its point budget: unmet can award 27 of the
+        # 100 points, dealsize 10. A signal awards the share of its budget
+        # equal to its own position on the same log scale, so the six
+        # `points_*` columns sum exactly to `opportunity` and the UI can say
+        # "unfilled demand is 21 of this company's 64 points" without a second
+        # model. [scale] -- this fixes the units, it does not choose them.
+        "points_out_of": 100.0,
     },
 
     # ---- confidence -------------------------------------------------------

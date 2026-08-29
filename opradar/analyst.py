@@ -48,7 +48,7 @@ from .config import CONFIG, config_hash
 
 # Bump when a schema or an instruction changes: cached answers carrying an
 # older stamp are regenerated rather than mixed with new ones.
-ANALYST_VERSION = 7
+ANALYST_VERSION = 8
 
 CACHE_NAME = "analysis_cache.json"
 
@@ -260,7 +260,11 @@ def company_facts(st: State, name: str) -> dict | None:
         "company": str(r["company_name"]),
         "rank_in_pool": _i(r.get("rank")),
         "companies_in_pool": int(len(st.opp)),
-        "opportunity_percentile": _f(r.get("opportunity")),
+        # Absolute, not a percentile: 100 would be a company that maxes all six
+        # signals at once and cannot exist, so the best row in this pool is in
+        # the 80s. `ahead_of_percent_of_pool` is the pool-relative reading.
+        "opportunity_score_out_of_100": _f(r.get("opportunity")),
+        "ahead_of_percent_of_pool": _f(r.get("percentile")),
         "confidence_band": str(r.get("confidence_band")),
         "segment": str(r.get("segment")),
         "segment_confirmed_by_outside_source": bool(r.get("segment_verified")),

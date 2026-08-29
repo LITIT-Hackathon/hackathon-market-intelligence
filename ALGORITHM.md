@@ -192,6 +192,13 @@ dataset encodes.
 
 ### 4.4 Need signals
 
+> **Superseded.** The shipped scorer replaced this weighted sum of
+> percentiles with a weighted geometric mean of six named signals, and the
+> printed score with an absolute one. See [§11](#11-revision--what-the-scored-number-is-now)
+> and `opradar/scoring.py`, which carry the current definitions. Kept here
+> because the threshold measurements below are still the reason the
+> current signals look the way they do.
+
 Percentile-ranked within the eligible pool, then weighted.
 
 **N1 — unmet demand (35)**
@@ -488,3 +495,147 @@ Cut Part 3 down, never Part 1.
 | Q3 | LITIT's actual delivery stack | turns "hiring IT" into "hiring OUR stack" |
 | Q4 | People dataset — bench, or open candidate pool? | Pipeline B semantics |
 | Q5 | Judging rubric weightings | effort allocation |
+
+---
+
+## 11. Revision — what the scored number is now
+
+> **§4.4 above describes a superseded model.** The shipped scorer replaced the
+> weighted sum of percentiles (N1..N4) with a weighted **geometric** mean of six
+> named signals; `opradar/scoring.py` and `opradar/config.py` carry the current
+> definitions and every justification. This section records the last change to
+> what the number *means*, because that is the part a reader is most likely to
+> quote.
+
+### 11.1 The score is absolute, and 100 is unreachable
+
+`opportunity` used to be a percentile of the pool. Three things were wrong with
+that, all measured on the 142-company pool:
+
+| symptom | measurement |
+|---|---|
+| the head printed 100 whatever it scored | the best company reached **0.46** of the model's own maximum |
+| the spacing was uniform, the reality was not | rank 1→2 is a **7.1%** drop in `pressure`; rank 20→21 is **0.2%**; both printed 0.7 points |
+| a company's score moved when an unrelated company joined the pool | by construction |
+
+Every effective signal lives in `[log_floor, 1]`, so their weighted geometric
+mean `pressure` does too, and both ends are meanings: the floor is a company
+that fails every dimension as hard as the model allows, `1.0` is one that maxes
+all six at once. The score is the position between them, on the log scale the
+model actually multiplies in:
+
+```
+opportunity = 100 · (1 + ln(pressure) / −ln(log_floor))
+```
+
+**Nobody can reach 100, and it is not capped.** `unmet`, `seniority` and
+`programme` are geometric means of saturating terms and `expansion` is a
+logistic; all four approach 1 without arriving, so `pressure = 1` describes no
+finite company. On the shipped pool the board runs **30.8 – 86.6**. A company at
+the bottom of it is still not the worst company the model can imagine, and
+saying so is the point. `percentile` keeps the pool-relative reading beside the
+score, correctly labelled.
+
+The six `points_*` columns decompose it: each signal's weight **is** its point
+budget (unmet 27, programme 20, serviceability 16, expansion 14, seniority 13,
+dealsize 10), and each awards the share of its budget equal to its own position
+on the same scale. They sum to `opportunity` exactly.
+
+### 11.2 A signal built from several legs is a geometric mean too
+
+The file argues at the top that a conjunction must be a geometric mean rather
+than a raw product, so that requiring every dimension to be non-trivial does not
+also collapse the scale. The signals were not obeying it internally:
+
+| signal | pool max, before | after |
+|---|---|---|
+| `programme` = burst × concentration × shape | **0.211** | 0.595 |
+| `unmet` = rate × magnitude | 0.867 | 0.931 |
+| `seniority` = rate × magnitude | 0.919 | 0.959 |
+
+A signal whose maximum is 0.211 cannot spend a 0.20 weight. Measured share of
+the ranking's variance: `programme` **2.5%** before, against `serviceability`'s
+37.5% — the second-heaviest stated weight was deciding a fortieth of the board.
+
+### 11.3 Two things the model was scoring that were not about the company
+
+**The absence of a burst.** Two of S3's three legs carried a floor, stated as
+"keep the three-way product from zeroing on one weak leg". The burst leg had
+none, so a company whose largest 21-day cluster was two roles — ordinary
+scattered backfill — was scored exactly as hard as a company with no demand at
+all. It now has the same floor as the concentration leg. A shape claim also
+needs enough advertisements to be a claim: with three ads in hand the largest
+possible cluster is three, so `programme`'s evidence weight is now the weaker of
+its stack coverage and `it_n / 8`.
+
+> [measured] Schwarz Digits — 3 ads in the June crawl, **85** IT roles on the
+> board today and **79** of them open past a month, the highest unmet-demand
+> score in the pool — scored 0 on `programme` because two of its three ads
+> landed in the same window.
+
+**The age of our own crawl.** Both bench signals were computed over vacancies
+still live, and scored 0 when none survived. That floored **77 companies** on
+0.26 of the total weight — and it is one fact counted twice: r(log
+serviceability, log dealsize) = **0.88**, and the same 79 rows were floored on
+both. 48 of those 77 have IT roles open on today's board; the board reports
+counts, not roles, so it cannot say what they are. That is missing evidence.
+
+> [measured] Deutsche Telekom — **37** IT roles open today, **32** of them open
+> past a month — sat at rank 42. The top 40 contained *no* company whose ads had
+> aged out, which made a 0.26-weight signal behave as a hard gate.
+
+**Serviceability** now falls back to the same arithmetic over the vacancies we
+do hold. **Dealsize does not**, and the split is measured rather than argued:
+serviceability is a *rate* and survives its ads expiring (June sits +0.004 from
+the live reading over the 65 paired companies, and is the higher of the two on
+only 23 of them); dealsize is a *count* and does not (+0.268, because June still
+contains every role since filled). Carrying the count would credit the size of a
+deal that no longer exists, so it is left unobserved and the pool prior stands
+in for it.
+
+How far to trust the rate is **fitted at run time**, not chosen — the textbook
+shrinkage weight `var(signal) / (var(signal) + var(noise))`, estimated on the
+companies carrying both readings, exactly as the Beta priors above are fitted.
+It comes out at **0.79** on this pool. The 0.5 that had been copied from S1's
+proxy was wrong in the direction that matters: June's rate has a mean absolute
+error of 0.065 against the pool prior's 0.163, so shrinking halfway to the prior
+threw away the better estimate in favour of one that happens to sit high — which
+flattered exactly the companies we can see least. Raising the weight to its
+fitted value *demotes* them.
+
+Confidence was also blind to all this. Its observability term listed only the
+four market signals, from when the two bench evidence weights were the constant
+1.0; it now covers all six, weighted by how much of the score each carries.
+
+### 11.4 What it did to the board
+
+| check | before | after |
+|---|---|---|
+| rows printing 100 | 1 | **0** |
+| Spearman(score, `it_n`) — V1 divergence, lower is better | 0.414 | **0.324** |
+| Spearman(score, roles open past a month on the board) | — | **0.910** |
+| companies floored on both bench signals | 79 | **2** (both with live roles we genuinely cannot cover) |
+| V3 weight-perturbation overlap @20 | 19/20 | 18/20 |
+| V4 jackknife overlap @20 | 16/20 | 16/20 |
+
+The ranking became *less* correlated with raw ad volume and much more correlated
+with the board's own count of roles open past a month, which is what the product
+claims to rank on.
+
+### 11.5 What a signal is allowed to decide
+
+A weight is an elasticity, not a share of the outcome — a signal only moves the
+board over the range it actually varies. Measured across the pool:
+
+| signal | budget | awards | why |
+|---|---:|---|---|
+| `unmet` | 27 | 0.0 – 26.4 | 44 companies have nothing open past a month; the definitional gate does its job |
+| `serviceability` | 16 | 0.0 – 16.0 | two companies have live roles we cannot cover |
+| `dealsize` | 10 | 0.0 – 10.0 | |
+| `programme` | 20 | 10.4 – 16.5 | only measurable on companies with enough ads; quiet elsewhere by design |
+| `expansion` | 14 | 7.7 – 13.1 | standardised against the pool's own median change, most companies **are** at parity |
+| `seniority` | 13 | 8.8 – 12.8 | observed on 24% of postings, so mostly shrunk to the prior |
+
+Among the 98 companies that clear the unmet gate — the ranking that actually
+matters — the shares are `unmet` 60%, `dealsize` 18%, `serviceability` 15%,
+`programme` 4%, `seniority` 2%, `expansion` 1%.

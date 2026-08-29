@@ -127,6 +127,7 @@ export interface Radar extends Table {
     config_hash: string;
     weights: Record<string, number>;
     floor: number;
+    stale_weight?: number;
   };
   validation: {
     v1_rho: number;
