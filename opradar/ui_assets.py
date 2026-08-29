@@ -836,13 +836,20 @@ if (D.radar) {
   const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
   const plain = r => {
     const it = rx('it_n')(r), dead = rx('dead_n')(r) || 0, up = it - dead;
-    const o90 = rx('open90')(r), o45 = rx('open45')(r);
+    const o45 = rx('open45')(r);
     const sen = rx('senior_n')(r), techs = rx('techs')(r);
+    const stock = rx('now_stock')(r), aged = rx('now_aged')(r);
     const bits = [];
-    bits.push(`${plural(up, 'IT role', 'IT roles')} still up`);
-    if (dead) bits.push(`${dead} already taken down`);
-    if (o90) bits.push(`${o90} stuck for over 3 months`);
-    else if (o45) bits.push(`${o45} open over 6 weeks`);
+    /* Where the live board answered, lead with what is open TODAY: the
+       snapshot is a June crawl and its counts are three months stale. */
+    if (rx('verified')(r) && stock !== null && stock !== undefined) {
+      bits.push(`${plural(stock, 'IT role', 'IT roles')} open on the board today`);
+      if (aged) bits.push(`${aged} of them for over a month`);
+    } else {
+      bits.push(`${plural(up, 'IT role', 'IT roles')} still up`);
+      if (dead) bits.push(`${dead} already taken down`);
+      if (o45) bits.push(`${o45} open over 6 weeks`);
+    }
     if (sen) bits.push(`${plural(sen, 'is senior', 'are senior')}`);
     let s = bits.join(', ') + '.';
     if (techs.length) {
@@ -905,9 +912,19 @@ if (D.radar) {
     const cov = rx('covered')(r), tot = cov + rx('uncovered')(r);
     const unc = rx('uncovered_families')(r);
 
-    const tiles = tile('Roles still up', live, live ? '' : 'zero')
-      + tile('Taken down since', dead, dead ? '' : 'zero')
-      + tile('Open 6+ weeks', o45, o45 ? '' : 'zero')
+    const verified = rx('verified')(r);
+    const stock = rx('now_stock')(r), aged = rx('now_aged')(r);
+    /* Two different observations, labelled as such. The board is today and it
+       is what the score rests on; the crawl is June and it is the only thing
+       we hold clickable URLs for. Showing one without the other is what makes
+       "99/100" beside eight dead links look like a bug. */
+    const tiles = (verified && stock !== null && stock !== undefined
+        ? tile('Open on the board today', stock, stock ? 'acc' : 'zero')
+          + tile('Open there over a month', aged || 0, aged ? 'acc' : 'zero')
+        : '')
+      + tile('From our crawl, still up', live, live ? '' : 'zero')
+      + tile('From our crawl, taken down', dead, dead ? '' : 'zero')
+      + tile('Open 6+ weeks at crawl', o45, o45 ? '' : 'zero')
       + tile('Senior or lead', sen, sen ? '' : 'zero')
       + tile('Typical age', rx('median_age')(r) + '<span class="sfx">days</span>')
       + tile('Roles we could fill', cov + '<span class="sfx">of ' + tot + '</span>', 'acc');
@@ -934,7 +951,8 @@ if (D.radar) {
       + `<div class="mix">${mix}</div>`
       + `<p class="evhead">What we bring</p><div class="mix">${ours}</div>${uncov}`
       + `</div></div>`
-      + `<p class="evhead">Open roles over time <span class="sfx">hover the line to see which</span></p>`
+      + `<p class="evhead">Open roles over time`
+      + `<span class="sfx">from the June crawl &mdash; hover the line to see which</span></p>`
       + timeline(rx('timeline')(r)) + `</div>`;
   };
 
@@ -1315,6 +1333,8 @@ if (D.radar) {
             ? ' <span class="tag warn" title="We could not confirm from the data whether this is a customer or an IT supplier. Check before calling.">unconfirmed</span>' : '')
           + (rx('band')(r) === 'low'
             ? ' <span class="tag" title="Based on only a few job ads">thin evidence</span>' : '')
+          + (rx('verified')(r)
+            ? ' <span class="tag pub" title="Re-observed on the Bundesagentur board today: open roles, posting flow and agency flags all come from the source rather than from our inference">live-checked</span>' : '')
           + `<span class="csub">${esc(plain(r))}</span>`
           + `<span class="cchips">`
           + rx('techs')(r).slice(0, 3).map(t => `<span class="chip">${esc(t)}</span>`).join('')

@@ -217,6 +217,9 @@ def build_radar(data_dir: Path) -> dict | None:
     def _j(v, default):
         return json.loads(v) if isinstance(v, str) else (v if v is not None else default)
 
+    def _int_or_none(v):
+        return None if pd.isna(v) else int(v)
+
     rows = []
     for r in opp.itertuples():
         tl = _j(r.timeline, [])
@@ -234,6 +237,10 @@ def build_radar(data_dir: Path) -> dict | None:
             int(r.median_age), _j(r.top_technologies, []),
             sum(1 for t in tl if t.get("live") is True),
             sum(1 for t in tl if t.get("live") is False),
+            # today's board, where we could observe it: the score rests on
+            # these, while the citations below can only be June's crawl
+            bool(r.live_verified),
+            _int_or_none(r.now_it_stock), _int_or_none(r.now_aged_open),
             tl,
         ])
 
@@ -251,7 +258,8 @@ def build_radar(data_dir: Path) -> dict | None:
                  "unmet", "expansion", "programme", "seniority", "svcsig",
                  "svc", "covered", "uncovered", "uncovered_families",
                  "conf", "band", "it_n", "open45", "open90", "senior_n",
-                 "median_age", "techs", "live_n", "dead_n", "timeline"],
+                 "median_age", "techs", "live_n", "dead_n",
+                 "verified", "now_stock", "now_aged", "timeline"],
         "rows": rows,
         "validation": {
             "v1_rho": v["v1_divergence"]["spearman_vs_it_postings"],
