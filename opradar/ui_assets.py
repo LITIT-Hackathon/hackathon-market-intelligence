@@ -7,7 +7,12 @@ CSS = r"""
   --ink:#1A1C1B; --ink-2:#232624; --ink-3:#343835;
   --paper:#FFFFFF; --paper-2:#F5F5F2; --line:#E4E4DF; --line-2:#D2D2CC;
   --text:#1A1C1B; --muted:#6B6F6C; --muted-2:#8D918E;
-  --accent:#FFEB00; --pos:#28D08A; --warn:#C4462F; --link:#116DFF;
+  /* Two accents, each with a job, so colour carries meaning instead of
+     decorating: yellow is the market's demand, iris is our side of the trade
+     -- bench coverage, deal size, anything we bring. Yellow is illegible on
+     white, so it owns the dark data surfaces and iris owns the light ones. */
+  --accent:#FFEB00; --iris:#5B47F5; --iris-lit:#9384FF; --iris-soft:#EFECFF;
+  --pos:#28D08A; --warn:#C4462F; --link:#5B47F5;
   --r:24px; --r-sm:10px; --r-ctl:9px; --pill:999px;
   /* one spacing scale -- every gap on the page is one of these six values.
      Before this, blocks were spaced with ad-hoc negative margins. */
@@ -53,8 +58,10 @@ header{background:var(--ink);color:#fff;padding:22px 32px 0}
   letter-spacing:.02em;text-transform:uppercase;color:#fff}
 .brand .mark b{color:var(--accent)}
 .brand .sub{font:500 11px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;color:var(--muted-2)}
-.stamp{font:400 12px/1.6 var(--sans);color:var(--muted-2);text-align:right}
-.stamp b{color:#fff;font-weight:600}
+.stamp{display:flex;gap:7px;flex-wrap:wrap;justify-content:flex-end}
+.mchip{font:500 11px/1 var(--sans);color:var(--muted-2);background:var(--ink-2);
+  border:1px solid #2E3230;border-radius:var(--pill);padding:7px 12px;white-space:nowrap}
+.mchip b{color:#fff;font-weight:600;font-variant-numeric:tabular-nums}
 
 /* Folder tabs. The active tab is the same white surface as the panel and sits
    flush on its top edge -- header padding-bottom is 0 so there is no gap to
@@ -91,17 +98,20 @@ main{background:var(--paper);border-radius:var(--r) var(--r) 0 0;
 .lede{max-width:70ch;color:var(--muted);margin-bottom:var(--s5)}
 
 /* ---------- kpis ---------- */
-.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:1px;
-  background:var(--line);border:1px solid var(--line);border-radius:var(--r-sm);
-  overflow:hidden;margin-bottom:var(--s5)}
+/* Headline numbers sit on a dark slab, not white cards on a white page:
+   it anchors the screen and matches the other data surfaces (the timeline). */
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:1px;
+  background:var(--ink-3);border-radius:var(--r-ctl);overflow:hidden;margin-bottom:var(--s5)}
 /* a collapsed "more numbers" block belongs to the row above it */
 .kpis:has(+ details.more){margin-bottom:var(--s2)}
-.kpi{background:var(--paper);padding:18px 18px 16px}
-.kpi .v{font-family:var(--disp);font-weight:700;font-stretch:72%;font-size:38px;line-height:1;
-  letter-spacing:-.02em;margin:8px 0 4px}
-.kpi .n{font:400 12px/1.4 var(--sans);color:var(--muted)}
+.kpi{background:var(--ink);padding:17px 18px 19px}
+.kpi .label{color:var(--muted-2)}
+.kpi .v{font-family:var(--disp);font-weight:700;font-stretch:72%;font-size:42px;line-height:1;
+  letter-spacing:-.025em;margin:11px 0 5px;color:#fff}
+.kpi .n{font:400 12px/1.45 var(--sans);color:var(--muted-2)}
 .kpi.hl{background:var(--accent)}
-.kpi.hl .label,.kpi.hl .n{color:rgba(26,28,27,.72)}
+.kpi.hl .v{color:var(--ink)}
+.kpi.hl .label,.kpi.hl .n{color:rgba(26,28,27,.7)}
 
 /* ---------- progressive disclosure ----------
    Three tiers: the three numbers that answer the page's question stay visible;
@@ -143,14 +153,14 @@ h3.tight{margin-bottom:var(--s1)}
 .hbar2 .k{font:400 12.5px/1.35 var(--sans);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .hbar2 .t2{display:flex;flex-direction:column;gap:3px}
 .hbar2 .t2 i{display:block;height:9px;border-radius:2px;min-width:2px}
-.hbar2 .t2 i.s{background:var(--ink)}
-.hbar2 .t2 i.d{background:var(--accent)}
+.hbar2 .t2 i.s{background:var(--iris)}
+.hbar2 .t2 i.d{background:var(--ink)}
 .hbar2 .v{font:500 12px/1 var(--sans);color:var(--muted);text-align:right;font-variant-numeric:tabular-nums}
 .lg{display:flex;gap:16px;margin-top:14px;font:400 11px/1 var(--sans);color:var(--muted)}
 .lg span{display:inline-flex;align-items:center;gap:6px}
 .lg i{width:12px;height:9px;border-radius:2px;display:inline-block}
-.lg i.s{background:var(--ink)}
-.lg i.d{background:var(--accent)}
+.lg i.s{background:var(--iris)}
+.lg i.d{background:var(--ink)}
 /* two charts stacked in one panel */
 .stack{height:var(--s4)}
 .cols{display:flex;align-items:flex-end;gap:3px;height:150px;border-bottom:1px solid var(--line);padding-bottom:0}
@@ -171,6 +181,9 @@ h3.tight{margin-bottom:var(--s1)}
    Every control in a row is the same height and shares one border, hover and
    focus treatment; the native select chevron and checkbox are replaced. */
 .controls{display:flex;gap:var(--s2);flex-wrap:wrap;align-items:center;margin-bottom:var(--s3)}
+/* the filter bar stays reachable while the ranking scrolls */
+.controls.stick{position:sticky;top:0;z-index:4;background:var(--paper);
+  margin:0 -32px var(--s3);padding:14px 32px;border-bottom:1px solid var(--line)}
 input[type=search],select,.chk{height:40px;font:400 13px var(--sans);color:var(--text);
   background:var(--paper);border:1px solid var(--line);border-radius:var(--r-ctl);
   transition:border-color var(--ease),box-shadow var(--ease),background var(--ease)}
@@ -270,10 +283,43 @@ input[type=range]::-moz-range-thumb{width:14px;height:14px;border-radius:50%;
   transition:background var(--ease),color var(--ease),border-color var(--ease)}
 .resetbtn:hover{background:var(--ink);color:#fff;border-color:var(--ink)}
 .resetbtn:focus-visible{outline:none;box-shadow:var(--ring)}
-.score{font-family:var(--disp);font-weight:700;font-stretch:72%;font-size:19px;letter-spacing:-.01em}
-/* company cell: name on top, a plain sentence underneath */
-.cname{font-weight:600;font-size:14px}
-.csub{display:block;margin-top:3px;font:400 12.5px/1.45 var(--sans);color:var(--muted);max-width:52ch}
+/* ---------- the ranking row ----------
+   Collapsed, a row answers three questions and no more: who, how much demand
+   against how much of it we can serve, and what that scores. Every other
+   number lives in the panel underneath. */
+.rk{font:600 12px/1 var(--sans);color:var(--muted-2);font-variant-numeric:tabular-nums}
+.cname{font-weight:600;font-size:14.5px;letter-spacing:-.005em}
+.csub{display:block;margin-top:4px;font:400 12.5px/1.45 var(--sans);color:var(--muted);max-width:52ch}
+.cchips{display:block;margin-top:7px}
+
+.sig{display:grid;gap:7px;min-width:172px;max-width:290px}
+.sigrow{display:grid;grid-template-columns:64px 1fr 26px;gap:9px;align-items:center}
+.sigrow .k{font:600 9.5px/1 var(--sans);letter-spacing:.07em;text-transform:uppercase;
+  color:var(--muted-2)}
+.sigrow .t{height:6px;border-radius:var(--pill);background:var(--paper-2)}
+.sigrow .t i{display:block;height:100%;border-radius:var(--pill);background:var(--ink)}
+.sigrow.sup .t i{background:var(--iris)}
+.sigrow .n{font:600 11px/1 var(--sans);color:var(--muted);text-align:right;
+  font-variant-numeric:tabular-nums}
+
+.scorecell{display:inline-flex;align-items:center;justify-content:flex-end;gap:11px}
+.scoren{font-family:var(--disp);font-weight:700;font-stretch:72%;font-size:27px;line-height:1;
+  letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.scoremeter{width:4px;height:32px;border-radius:2px;background:var(--paper-2);position:relative}
+.scoremeter i{position:absolute;left:0;right:0;bottom:0;border-radius:2px;background:var(--ink)}
+.exp{width:23px;height:23px;flex:none;border-radius:50%;border:1px solid var(--line);
+  display:inline-flex;align-items:center;justify-content:center;
+  transition:transform var(--ease),background var(--ease),border-color var(--ease)}
+.exp::before{content:"";width:6px;height:6px;margin-top:-3px;
+  border-right:1.7px solid var(--muted);border-bottom:1.7px solid var(--muted);
+  transform:rotate(45deg)}
+tr:hover .exp{border-color:var(--line-2)}
+tr.open .exp{background:var(--ink);border-color:var(--ink);transform:rotate(180deg)}
+tr.open .exp::before{border-color:var(--accent)}
+/* the open row is marked on the rail, not by shouting */
+#ra-body tr:hover td:first-child{box-shadow:inset 3px 0 0 var(--line-2)}
+#ra-body tr.open td:first-child{box-shadow:inset 3px 0 0 var(--accent)}
+#ra-body tr.open{background:var(--paper-2)}
 .tag.warn{background:#fff4d6;border-color:#e8c766;color:#6b5200}
 td .z{color:var(--muted-2)}
 .evwhy{margin-bottom:14px}
@@ -291,8 +337,6 @@ details.adv summary::before{content:"";width:6px;height:6px;flex:none;border-rig
 details.adv[open] summary::before{transform:rotate(45deg)}
 details.adv[open] summary{margin-bottom:var(--s3);color:var(--ink)}
 .svctxt{display:block;font:400 11.5px var(--sans);color:var(--muted);margin-top:3px;white-space:nowrap}
-.mini{display:inline-flex;gap:2px;vertical-align:middle}
-.mini i{width:7px;border-radius:1px;background:var(--line-2);align-self:flex-end}
 .band{display:inline-block;font:600 10px/1 var(--sans);letter-spacing:.06em;text-transform:uppercase;
   padding:5px 9px;border-radius:var(--pill)}
 .band.high{background:var(--ink);color:#fff}
@@ -300,15 +344,46 @@ details.adv[open] summary{margin-bottom:var(--s3);color:var(--ink)}
 .band.low{background:transparent;color:var(--muted-2);border:1px dashed var(--line-2)}
 .svcbar{display:inline-block;width:52px;height:8px;background:var(--paper-2);border-radius:2px;
   overflow:hidden;vertical-align:middle;margin-right:6px}
-.svcbar i{display:block;height:100%;background:var(--ink)}
+.svcbar i{display:block;height:100%;background:var(--iris)}
 .svcbar i.low{background:var(--warn)}
-tr.evrow>td{background:var(--paper-2);padding:14px 16px 16px}
-.evlist{display:grid;gap:6px}
-.evlist a{font:400 12.5px var(--sans)}
-.evlist .age{margin-left:8px}
-.evhead{font:600 11px/1 var(--sans);letter-spacing:.1em;text-transform:uppercase;
-  color:var(--muted);margin:2px 0 8px}
-.uncov{font:400 12px var(--sans);color:var(--warn);margin-top:10px}
+/* ---------- the detail panel: tier two ---------- */
+tr.evrow>td{background:var(--paper-2);padding:0}
+.ex{padding:20px 18px 22px 20px;box-shadow:inset 3px 0 0 var(--accent)}
+.extiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(128px,1fr));gap:1px;
+  background:var(--line);border:1px solid var(--line);border-radius:var(--r-ctl);
+  overflow:hidden;margin-bottom:var(--s4)}
+.tile{background:var(--paper);padding:11px 14px 13px}
+.tile .k{font:600 9.5px/1.3 var(--sans);letter-spacing:.08em;text-transform:uppercase;
+  color:var(--muted-2)}
+.tile .v{font:600 20px/1 var(--sans);margin-top:8px;font-variant-numeric:tabular-nums;
+  letter-spacing:-.015em}
+.tile .v .sfx{font-weight:400;font-size:12.5px;color:var(--muted);margin-left:4px;letter-spacing:0}
+.evhead .sfx{font-weight:400;font-size:11px;letter-spacing:0;text-transform:none;
+  color:var(--muted-2);margin-left:9px}
+.tile.acc .v{color:var(--iris)}
+.tile.zero .v{color:var(--muted-2)}
+.excols{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:var(--s4) var(--s5);
+  margin-bottom:var(--s4)}
+@media(max-width:920px){.excols{grid-template-columns:1fr}}
+.evhead{font:600 10px/1 var(--sans);letter-spacing:.12em;text-transform:uppercase;
+  color:var(--muted-2);margin:0 0 11px}
+.why{list-style:none;display:grid;gap:8px}
+.why li{position:relative;padding-left:16px;font:400 13px/1.5 var(--sans);color:var(--ink)}
+.why li::before{content:"";position:absolute;left:0;top:8px;width:6px;height:6px;
+  border-radius:50%;background:var(--accent);box-shadow:0 0 0 1px var(--line-2)}
+.why li.sup::before{background:var(--iris);box-shadow:none}
+.mix{display:grid;gap:9px;max-width:440px}
+.mix+.evhead{margin-top:var(--s4)}
+.mixrow{display:grid;grid-template-columns:minmax(0,1fr) 92px 30px;gap:12px;align-items:center}
+.mixrow .k{font:400 12.5px/1.35 var(--sans);color:var(--ink)}
+.mixrow .t{height:7px;border-radius:var(--pill);background:var(--line)}
+.mixrow .t i{display:block;height:100%;border-radius:var(--pill);background:var(--ink)}
+.mixrow.sup .t i{background:var(--iris)}
+.mixrow .n{font:600 11.5px/1 var(--sans);text-align:right;color:var(--muted);
+  font-variant-numeric:tabular-nums}
+.uncov{font:400 12px/1.6 var(--sans);color:var(--muted);margin-top:var(--s3)}
+.uncov b{color:var(--warn);font-weight:600}
+.uncov .chip{background:#FBEAE6;color:#8C3121}
 /* ---------- open-roles timeline (evidence panel) ---------- */
 .tlc{position:relative;background:var(--ink);border-radius:var(--r-sm);padding:10px 12px 10px;margin-top:4px}
 .tlc svg{display:block;width:100%;height:auto}
@@ -368,6 +443,7 @@ footer{background:var(--ink);color:var(--muted-2);padding:var(--s4) 32px var(--s
 footer a{color:var(--muted-2);text-decoration:underline}
 @media(max-width:640px){
   header,main,footer{padding-left:16px;padding-right:16px}
+  .controls.stick{margin-left:-16px;margin-right:-16px;padding-left:16px;padding-right:16px}
   .hbar{grid-template-columns:minmax(70px,120px) 1fr auto}
 }
 """
@@ -401,17 +477,21 @@ function cols(el, rows, opts = {}) {
 }
 
 function hbar2(el, rows, opts = {}) {
+  /* rows are [label, ours, market, tension?]: the first bar is always our
+     side of the trade, the second always the market's. */
+  const [lo, lm] = opts.legend || ['supply', 'demand'];
   const max = Math.max(1e-9, ...rows.flatMap(r => [r[1], r[2]]));
+  const tension = rows.some(r => r[3] !== undefined);
   el.innerHTML = '<div class="hbar2">' + rows.map(r => {
     const a = (r[1] / max * 100).toFixed(1), b = (r[2] / max * 100).toFixed(1);
     return `<div class="k" title="${esc(r[0])}">${esc(r[0])}</div>`
          + `<div class="t2">`
-         + `<i class="s" style="width:${a}%" title="supply ${(r[1]*100).toFixed(1)}%"></i>`
-         + `<i class="d" style="width:${b}%" title="demand ${(r[2]*100).toFixed(1)}%"></i></div>`
+         + `<i class="s" style="width:${a}%" title="${esc(lo)} ${(r[1]*100).toFixed(1)}%"></i>`
+         + `<i class="d" style="width:${b}%" title="${esc(lm)} ${(r[2]*100).toFixed(1)}%"></i></div>`
          + `<div class="v">${r[3] !== undefined ? r[3].toFixed(2) : ''}</div>`;
   }).join('') + '</div>'
-  + '<div class="lg"><span><i class="s"></i>supply</span><span><i class="d"></i>demand</span>'
-  + '<span style="margin-left:auto">tension</span></div>';
+  + `<div class="lg"><span><i class="s"></i>${esc(lo)}</span><span><i class="d"></i>${esc(lm)}</span>`
+  + (tension ? '<span style="margin-left:auto">tension</span>' : '') + '</div>';
 }
 
 /* ---------- generic table ---------- */
@@ -600,7 +680,8 @@ renderPostings();
 if (D.talent) {
   const T = D.talent, TC = T.charts;
 
-  hbar2($('#t-supplydemand'), TC.supply_demand);
+  hbar2($('#t-supplydemand'), TC.supply_demand,
+        {legend: ['candidates who have it', 'openings asking for it']});
   hbar($('#t-tensiontop'), TC.tension_top.map(r => [r[0], r[1], 'acc']), { fmt: v => v.toFixed(2) });
   hbar($('#t-tensionbot'), TC.tension_bottom.map(r => [r[0], r[1], 'mut']), { fmt: v => v.toFixed(2) });
   hbar($('#t-rolefam'), TC.role_family);
@@ -697,11 +778,22 @@ if (D.radar) {
   const oppOf = r => needOf(r) * rx('svc')(r) * rx('deal')(r);
   let openKey = null;
 
-  const mini = r => {
-    const h = v => Math.max(2, Math.round(v * 18));
-    return `<span class="mini" title="Unfilled ${(rx('n1')(r)*100).toFixed(0)} · Senior ${(rx('n2')(r)*100).toFixed(0)} · Focus ${(rx('n3')(r)*100).toFixed(0)} · Active ${(rx('n4')(r)*100).toFixed(0)}">`
-      + ['n1','n2','n3','n4'].map(k => `<i style="height:${h(r[rIdx[k]])}px"></i>`).join('') + '</span>';
+  /* Score = Demand x what we can serve of it, so a collapsed row carries
+     exactly those two meters and its own arithmetic is visible. The four
+     components behind Demand, and everything else, live in the panel. */
+  const reachOf = r => rx('svc')(r) * rx('deal')(r) * 100;
+  const meter = (cls, label, pct) => {
+    const w = Math.max(1.5, Math.min(100, pct));
+    return `<span class="sigrow ${cls}"><span class="k">${label}</span>`
+      + `<span class="t"><i style="width:${w.toFixed(1)}%"></i></span>`
+      + `<span class="n">${Math.round(pct)}</span></span>`;
   };
+  const NEEDMIX = [
+    ['n1', 'Fresh demand'],
+    ['n2', 'Senior roles they cannot fill'],
+    ['n3', 'Hiring focused on one technology'],
+    ['n4', 'Still hiring right now'],
+  ];
 
   /* One plain-English line describing what is happening at this company.
      Non-technical readers get the story here; the numbers are the columns. */
@@ -736,7 +828,8 @@ if (D.radar) {
 
   /* Plain reasons, driven by the same percentiles that drive the score. */
   const reasons = r => {
-    const out = [], techs = rx('techs')(r);
+    const dem = [], sup = [], techs = rx('techs')(r);
+    const out = dem;
     const o45 = rx('open45')(r), sen = rx('senior_n')(r);
     if (rx('n1')(r) >= 0.7)
       out.push(`Posting new IT roles at a pace few companies here match — this demand is fresh.`);
@@ -755,20 +848,64 @@ if (D.radar) {
        the "Can we staff it" column. */
     const cov = rx('covered')(r), tot = cov + rx('uncovered')(r), v = rx('svc')(r);
     if (!tot)
-      out.push(`Every ad they were running has since been taken down — nothing left to staff today.`);
+      sup.push(`Every ad they were running has since been taken down — nothing left to staff today.`);
     else if (cov === tot && v >= 0.8)
-      out.push(`Our bench covers all ${plural(tot, 'role still up', 'roles still up')}, with depth behind them.`);
+      sup.push(`Our bench covers all ${plural(tot, 'role still up', 'roles still up')}, with depth behind them.`);
     else if (cov === tot)
-      out.push(`Someone on our bench fits each of the ${tot} roles still up, but depth is thin in places.`);
+      sup.push(`Someone on our bench fits each of the ${tot} roles still up, but depth is thin in places.`);
     else
-      out.push(`Our bench could cover ${cov} of the ${tot} roles still up.`);
+      sup.push(`Our bench could cover ${cov} of the ${tot} roles still up.`);
     /* Deal size: more people on one contract = a better contract. */
     const deal = rx('deal')(r);
     if (deal >= 1)
-      out.push(`Team-sized deal: enough staffable roles here to place several people at once.`);
+      sup.push(`Team-sized deal: enough staffable roles here to place several people at once.`);
     else if (deal <= 0.35 && tot)
-      out.push(`Thin deal — only about one placeable role, so it scores lower.`);
-    return out;
+      sup.push(`Thin deal — only about one placeable role, so it scores lower.`);
+    /* the marker colour tells you whose side of the trade a line is about */
+    return dem.map(t => ({t: t, sup: false})).concat(sup.map(t => ({t: t, sup: true})));
+  };
+
+  /* ---- the detail tier: every number the collapsed row left out ---- */
+  const tile = (k, v, cls) =>
+    `<div class="tile ${cls || ''}"><p class="k">${k}</p><p class="v">${v}</p></div>`;
+
+  const detailPanel = r => {
+    const dead = rx('dead_n')(r) || 0, live = rx('it_n')(r) - dead;
+    const o45 = rx('open45')(r), sen = rx('senior_n')(r);
+    const cov = rx('covered')(r), tot = cov + rx('uncovered')(r);
+    const unc = rx('uncovered_families')(r);
+
+    const tiles = tile('Roles still up', live, live ? '' : 'zero')
+      + tile('Taken down since', dead, dead ? '' : 'zero')
+      + tile('Open 6+ weeks', o45, o45 ? '' : 'zero')
+      + tile('Senior or lead', sen, sen ? '' : 'zero')
+      + tile('Typical age', rx('median_age')(r) + '<span class="sfx">days</span>')
+      + tile('Roles we could fill', cov + '<span class="sfx">of ' + tot + '</span>', 'acc');
+
+    const row = (cls, label, frac) =>
+      `<div class="mixrow ${cls}"><span class="k">${label}</span>`
+      + `<span class="t"><i style="width:${Math.max(1.5, frac * 100).toFixed(1)}%"></i></span>`
+      + `<span class="n">${Math.round(frac * 100)}</span></div>`;
+
+    const mix = NEEDMIX.map(([k, label]) => row('', label, rx(k)(r))).join('');
+    const ours = row('sup', 'Depth of bench behind those roles', rx('svc')(r))
+      + row('sup', 'Deal size — how many we could place at once', rx('deal')(r));
+
+    const uncov = Object.keys(unc).length
+      ? `<p class="uncov"><b>We cannot staff:</b> `
+        + Object.entries(unc).map(([k, v]) => `<span class="chip">${esc(k)} ×${v}</span>`).join('')
+        + ` not skills our bench carries today.</p>` : '';
+
+    return `<div class="ex"><div class="extiles">${tiles}</div>`
+      + `<div class="excols"><div><p class="evhead">Why this company</p><ul class="why">`
+      + reasons(r).map(b => `<li${b.sup ? ' class="sup"' : ''}>${esc(b.t)}</li>`).join('')
+      + `</ul></div><div>`
+      + `<p class="evhead">What the market is doing <span class="sfx">percentile vs the rest of this list</span></p>`
+      + `<div class="mix">${mix}</div>`
+      + `<p class="evhead">What we bring</p><div class="mix">${ours}</div>${uncov}`
+      + `</div></div>`
+      + `<p class="evhead">Open roles over time <span class="sfx">hover the line to see which</span></p>`
+      + timeline(rx('timeline')(r)) + `</div>`;
   };
 
   /* ------------------------------------------------------ open-roles timeline
@@ -1138,27 +1275,28 @@ if (D.radar) {
 
   const renderRadar = makeTable({
     head: '#ra-head', body: '#ra-body', count: '#ra-count', pager: '#ra-pager',
-    total: R.rows.length, noun: 'companies', sort: 5, dir: -1,   /* 5 = Score */
+    total: R.rows.length, noun: 'companies', sort: 3, dir: -1,   /* 3 = Score */
     columns: [
       { t: '#', v: r => Math.round(oppOf(r)), r: true,
-        render: (r, pos) => `<b>${pos}</b>` },
+        render: (r, pos) => `<span class="rk">${pos}</span>` },
       { t: 'Company', v: rx('name'), cls: 'nm', render: r =>
           `<span class="cname">${esc(rx('name')(r))}</span>`
           + (rx('review')(r)
             ? ' <span class="tag warn" title="We could not confirm from the data whether this is a customer or an IT supplier. Check before calling.">unconfirmed</span>' : '')
           + (rx('band')(r) === 'low'
             ? ' <span class="tag" title="Based on only a few job ads">thin evidence</span>' : '')
-          + `<span class="csub">${esc(plain(r))}</span>` },
-      { t: 'Focus', v: rx('techs'), sortKey: r => rx('techs')(r).length,
-        render: r => rx('techs')(r).slice(0, 3).map(t => `<span class="chip">${esc(t)}</span>`).join('') },
-      { t: 'Open 6+ weeks', v: rx('open45'), r: true,
-        render: r => rx('open45')(r) ? `<b>${rx('open45')(r)}</b>` : '<span class="z">0</span>' },
-      { t: 'Can we staff it', v: rx('svc'), r: true, render: r => {
-          const v = rx('svc')(r);
-          return `<span class="svcbar"><i class="${v < 0.5 ? 'low' : ''}" style="width:${(v*100).toFixed(0)}%"></i></span>`
-               + `<span class="svctxt">${staffLabel(v)}</span>`; } },
-      { t: 'Score /100', v: oppOf, r: true,
-        render: r => `<span class="score">${Math.round(oppOf(r))}</span>${mini(r)}` },
+          + `<span class="csub">${esc(plain(r))}</span>`
+          + `<span class="cchips">`
+          + rx('techs')(r).slice(0, 3).map(t => `<span class="chip">${esc(t)}</span>`).join('')
+          + `</span>` },
+      { t: 'Demand \u00d7 our reach', v: needOf, cls: 'sg', render: r =>
+          `<span class="sig">${meter('', 'Demand', needOf(r))}`
+          + `${meter('sup', 'We staff', reachOf(r))}</span>` },
+      { t: 'Score /100', v: oppOf, r: true, render: r => {
+          const v = oppOf(r);
+          return `<span class="scorecell"><span class="scoren">${Math.round(v)}</span>`
+            + `<span class="scoremeter"><i style="height:${Math.max(4, Math.min(100, v)).toFixed(0)}%"></i></span>`
+            + `<span class="exp"></span></span>`; } },
     ],
     filter: () => {
       const q = $('#ra-q').value.trim().toLowerCase();
@@ -1179,6 +1317,7 @@ if (D.radar) {
     },
     onRow: (tr, r) => {
       tr.classList.add('clickable');
+      if (rx('name')(r) === openKey) tr.classList.add('open');
       tr.onclick = () => {
         const key = rx('name')(r);
         openKey = openKey === key ? null : key;
@@ -1187,19 +1326,9 @@ if (D.radar) {
         const anchor = [...document.querySelectorAll('#ra-body tr')]
           .find(x => x.dataset.ev === key);
         if (!anchor) return;
-        const unc = rx('uncovered_families')(r);
         const row = document.createElement('tr');
         row.className = 'evrow';
-        row.innerHTML = `<td colspan="6">`
-          + `<div class="evwhy"><div class="evhead">Why this company</div><ul>`
-          + reasons(r).map(t => `<li>${esc(t)}</li>`).join('') + `</ul></div>`
-          + `<div class="evhead">Open roles over time &mdash; hover the line to see which</div>`
-          + timeline(rx('timeline')(r))
-          + (Object.keys(unc).length
-              ? `<div class="uncov">We could not staff: ` + Object.entries(unc)
-                  .map(([k, v]) => `${esc(k)} ×${v}`).join(', ')
-                + ` &mdash; not skills our bench currently has</div>` : '')
-          + `</td>`;
+        row.innerHTML = `<td colspan="4">${detailPanel(r)}</td>`;
         anchor.after(row);
         wireTimeline(row);
       };
@@ -1233,8 +1362,8 @@ if (D.bench) {
   hbar2($('#b-gap'), B.gap.map(g => {
     const dMax = Math.max(...B.gap.map(x => x[1]));
     const bMax = Math.max(...B.gap.map(x => x[2]));
-    return [g[0], g[1] / Math.max(dMax, 1), g[2] / Math.max(bMax, 1)];
-  }));
+    return [g[0], g[2] / Math.max(bMax, 1), g[1] / Math.max(dMax, 1)];
+  }), {legend: ['our bench', 'German demand']});
   hbar($('#b-pull'), B.supply_vs_pull.map(r => [r[0], r[2], 'acc']).sort((a, b) => b[1] - a[1]));
   hbar($('#b-supply'), B.supply_vs_pull.map(r => [r[0], r[1], '']).sort((a, b) => b[1] - a[1]));
 

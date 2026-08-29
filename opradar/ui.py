@@ -598,7 +598,8 @@ TEMPLATE = r"""<!doctype html>
       <span class="sub"></span>
     </div>
     <div class="stamp">
-      Snapshot <b>__SNAPSHOT__</b><br>Parsed __GENERATED__
+      <span class="mchip">Snapshot <b>__SNAPSHOT__</b></span>
+      <span class="mchip">Parsed __GENERATED__</span>
     </div>
   </div>
   <nav>
@@ -628,7 +629,7 @@ TEMPLATE = r"""<!doctype html>
     <div class="kpi"><p class="label">Open over 6 weeks</p><p class="v num" id="k-stuck">__R_STUCK__</p><p class="n">still not filled after six weeks</p></div>
   </div>
 
-  <div class="controls">
+  <div class="controls stick">
     <input type="search" id="ra-q" placeholder="Search for a company...">
     <select id="ra-class"><option value="">Every type of company</option>
       <option value="end_client">Businesses</option>
@@ -656,12 +657,15 @@ TEMPLATE = r"""<!doctype html>
     </div>
   </details>
 
-  <div class="note after"><b>How to read a row.</b> Click a company to open
-    its evidence &mdash; the oldest unfilled and freshest postings, each linking to the live ad
-    on arbeitsagentur.de. <em>review</em> marks companies the keyword rules could not
-    confidently classify (the LLM-pass queue); their identity confidence is already discounted.
-    Serviceability &lt; 1.0 means part of their demand sits in categories our bench does not
-    carry &mdash; the uncovered families are listed in the evidence panel.</div>
+  <div class="note after"><b>How to read a row.</b> Each row carries two meters.
+    <em>Demand</em> is how hard this company is hiring measured against everyone else on
+    this list; <em>We staff</em> is how much of that demand our bench could actually take,
+    depth and headcount included. The score is one multiplied by the other, so a company
+    with demand we cannot serve does not reach the top. Click any row for the whole
+    breakdown &mdash; the four things behind Demand, what we bring against them, and the
+    real job ads on arbeitsagentur.de. <em>unconfirmed</em> marks companies the keyword
+    rules could not classify as customer or supplier; their confidence is already
+    discounted, but check before calling.</div>
 </section>
 <!-- ================= COMPANIES ================= -->
 <section class="screen" id="companies" data-g="companies">
@@ -930,8 +934,8 @@ TEMPLATE = r"""<!doctype html>
   <div class="grid">
     <div class="panel wide">
       <p class="label">The gap</p><h3>German demand vs bench capability</h3>
-      <p class="hint">Eligible German postings naming each tech category (dark) against bench
-        consultants carrying it (yellow). Where dark towers over yellow &mdash; SAP/erp, embedded,
+      <p class="hint">Bench consultants carrying each tech category (violet) against eligible
+        German postings naming it (dark). Where dark towers over violet &mdash; SAP/erp, embedded,
         security &mdash; is exactly what the bench cannot serve. This chart is the honest version
         of Serviceability.</p>
       <div id="b-gap"></div>
@@ -1001,8 +1005,9 @@ TEMPLATE = r"""<!doctype html>
   <div class="grid">
     <div class="panel wide">
       <p class="label">The core question</p><h3>Skill supply vs demand</h3>
-      <p class="hint">Share of candidates holding each skill (dark) against share of openings asking
-        for it (yellow). Where yellow outruns dark, the market wants more than the bench carries.</p>
+      <p class="hint">Share of candidates holding each skill (violet) against share of openings
+        asking for it (dark). Where dark outruns violet, the market wants more than the bench
+        carries.</p>
       <div id="t-supplydemand"></div>
     </div>
     <div class="panel">
