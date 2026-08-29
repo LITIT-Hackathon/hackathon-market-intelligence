@@ -140,6 +140,8 @@ export interface Radar extends Table {
 
 export interface Bench {
   meta: { size: number; cells: number; thin_cells: number; german_speakers: number; people_rho: number };
+  /** true when bench_sim.parquet supplied the day rate / rating / GitHub columns */
+  simulated: boolean;
   cand_cols: string[];
   cand_rows: Row[];
   cells: [string, string, string, number, number, number, number, number, number][];

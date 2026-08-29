@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Screen, type Tab } from "../App";
-import { Cols, HBar, type BarRow } from "../components/Charts";
+import { Ranks, Series, type BarRow } from "../components/Chart";
 import { Kpi } from "../components/Kpi";
 import { f0 } from "../components/Kpi";
 import type { Payload } from "../data";
@@ -24,11 +24,6 @@ export function Overview({ data, on }: { data: Payload; on: Tab }) {
   return (
     <Screen id="overview" group="companies" on={on}>
       <p className="label">Overview</p>
-      <h2>What the market<br />looks like</h2>
-      <p className="lede">The German job market as it stood on the snapshot date &mdash; who is hiring,
-        for what, where, and how long the roles stay open. Nothing here is scored or ranked; it is
-        the raw picture the sales list is built from.</p>
-
       <div className="kpis">
         <Kpi hl label="Companies hiring IT" v={fmt(m.it_companies_3plus)}
           n={<>with three or more IT roles open &mdash; the market we can sell into</>} />
@@ -52,32 +47,34 @@ export function Overview({ data, on }: { data: Payload; on: Tab }) {
         <div className="panel" style={{ order: 4 }}>
           <p className="label">Demand</p><h3>Occupational groups</h3>
           <p className="hint">Top 10 of 37. IT highlighted.</p>
-          <HBar rows={C.kldb_groups.map<BarRow>((r) => [r[0], r[1], r[2] ? "acc" : ""])} />
+          <Ranks rows={C.kldb_groups.map<BarRow>((r) => [r[0], r[1], r[2] ? "acc" : ""])} labelWidth={150} />
         </div>
         <div className="panel" style={{ order: 2 }}>
           <p className="label">Supply side</p><h3>Who is posting</h3>
           <p className="hint">Postings by company class. Highlighted classes compete with us for the same placements.</p>
-          <HBar rows={C.classes.map<BarRow>((r) => [r[0], r[1], r[2] ? "acc" : ""])} />
+          <Ranks rows={C.classes.map<BarRow>((r) => [r[0], r[1], r[2] ? "acc" : ""])} labelWidth={150} />
         </div>
         <div className="panel" style={{ order: 3 }}>
           <p className="label">Stack</p><h3>Technologies in IT postings</h3>
           <p className="hint">From job titles only — roughly a third of IT postings name a technology. Descriptions would raise this.</p>
-          <HBar rows={C.tech} />
+          <Ranks rows={C.tech} />
         </div>
         <div className="panel" style={{ order: 5 }}>
           <p className="label">Sector</p><h3>Market domains</h3>
           <p className="hint">Across all postings — the sector a role sits in, detected separately from the technology stack. Domain fit is a first-class matching dimension.</p>
-          <HBar rows={C.domains} />
+          <Ranks rows={C.domains} />
         </div>
         <div className="panel" style={{ order: 1 }}>
           <p className="label">Scarcity</p><h3>How long postings stay open</h3>
-          <p className="hint">Highlighted buckets are roles the market is failing to fill.</p>
-          <Cols rows={C.age_buckets.map<BarRow>((r) => [r[0], r[1], r[0].startsWith("180") || r[0].startsWith("91") ? "acc" : ""])} />
+          <p className="hint">The tail past 90 days is what the market is failing to fill.
+            The rise at the end is not a recovery &mdash; it is every unfilled role
+            ever posted, piling up in the last bucket.</p>
+          <Series rows={C.age_buckets.map<BarRow>((r) => [r[0], r[1], ""])} areaLabel="postings open" />
         </div>
         <div className="panel" style={{ order: 6 }}>
           <p className="label">Qualification</p><h3>Requirement level</h3>
           <p className="hint">KldB 5th digit. Present on 99.8% of postings — the reliable way to stratify by level.</p>
-          <HBar rows={C.levels} />
+          <Series rows={C.levels} areaLabel="postings" />
         </div>
         <div className="panel wide" style={{ order: 7 }}>
           <p className="label">Geography</p><h3>Where the postings are</h3>
@@ -90,12 +87,12 @@ export function Overview({ data, on }: { data: Payload; on: Tab }) {
             <input type="checkbox" id="region-norm" checked={perCapita} onChange={(e) => setPerCapita(e.target.checked)} />
             {" "}Per million inhabitants
           </label>
-          <HBar rows={perCapita ? regionRel : regionAbs} />
+          <Ranks rows={perCapita ? regionRel : regionAbs} labelWidth={168} />
         </div>
         <div className="panel wide" style={{ order: 8 }}>
           <p className="label">Careful</p><h3>Postings by month posted</h3>
           <p className="hint">Last 18 months.</p>
-          <Cols rows={C.months.map<BarRow>((r) => [r[0], r[1], ""])} every={3} />
+          <Series rows={C.months.map<BarRow>((r) => [r[0], r[1], ""])} every={3} areaLabel="postings" />
           <div className="note"><b>This chart is a trap.</b> It looks like the market tripled, and it did not.
             The snapshot only contains postings that were still <em>open</em> on the crawl date — older ones
             are missing because they were <em>filled</em>. This is a survival curve, not a demand curve.

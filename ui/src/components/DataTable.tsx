@@ -1,9 +1,14 @@
 import { useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { fmt } from "../format";
 
 export interface Column<R> {
   /** header text */
   t: string;
+  /** what this column actually measures, shown on hover. Columns carrying a
+      derived or non-obvious number should always have one: the header has
+      room for two words and the reader needs a sentence. */
+  help?: string;
   /** the cell's value: sort key and, without `render`, the text shown */
   v: (r: R) => unknown;
   sortKey?: (r: R) => unknown;
@@ -47,6 +52,22 @@ function keyOf(r: object): number {
   return id;
 }
 
+interface Hint { text: string; x: number; y: number }
+
+/** The header hint. Portalled to <body> so `.tw`'s overflow cannot clip it,
+    and positioned under the header cell it belongs to. */
+function HeadHint({ hint }: { hint: Hint }) {
+  const pad = 12;
+  const w = 280;
+  const x = Math.min(Math.max(pad + w / 2, hint.x), window.innerWidth - pad - w / 2);
+  return createPortal(
+    <div className="thtip" style={{ left: x, top: hint.y + 8, width: w }} role="tooltip">
+      {hint.text}
+    </div>,
+    document.body,
+  );
+}
+
 function cmp(x: unknown, y: unknown, dir: number): number {
   if (x === null || x === undefined) return 1;
   if (y === null || y === undefined) return -1;
@@ -62,6 +83,7 @@ export function DataTable<R extends object>(props: Props<R>) {
   const [sort, setSort] = useState(Math.min(props.sort ?? 0, columns.length - 1));
   const [dir, setDir] = useState<1 | -1>(props.dir || -1);
   const [page, setPage] = useState(0);
+  const [hint, setHint] = useState<Hint | null>(null);
   const tw = useRef<HTMLDivElement>(null);
 
   const sorted = useMemo(() => {
@@ -97,8 +119,14 @@ export function DataTable<R extends object>(props: Props<R>) {
           <thead>
             <tr>
               {columns.map((c, i) => (
-                <th key={i} className={c.r ? "r" : ""} onClick={() => clickHead(i)}>
-                  {c.t}
+                <th key={i} className={`${c.r ? "r" : ""}${c.help ? " has-help" : ""}`}
+                  onClick={() => clickHead(i)}
+                  onMouseEnter={c.help ? (e) => {
+                    const b = e.currentTarget.getBoundingClientRect();
+                    setHint({ text: c.help as string, x: b.left + b.width / 2, y: b.bottom });
+                  } : undefined}
+                  onMouseLeave={c.help ? () => setHint(null) : undefined}>
+                  <span className="thl">{c.t}</span>
                   <span className="ar">{i === sort ? (dir < 0 ? "↓" : "↑") : ""}</span>
                 </th>
               ))}
@@ -119,6 +147,7 @@ export function DataTable<R extends object>(props: Props<R>) {
           </tbody>
         </table>
       </div>
+      {hint && <HeadHint hint={hint} />}
       <div className="pager">
         {pages > 1 && (
           <>

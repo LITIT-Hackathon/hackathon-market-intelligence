@@ -48,7 +48,7 @@ from .config import CONFIG, config_hash
 
 # Bump when a schema or an instruction changes: cached answers carrying an
 # older stamp are regenerated rather than mixed with new ones.
-ANALYST_VERSION = 6
+ANALYST_VERSION = 7
 
 CACHE_NAME = "analysis_cache.json"
 
@@ -342,7 +342,11 @@ def _ad_text_facts(st: State, key: str) -> dict:
         q = (getattr(row, "evidence", "") or "").strip()
         if not q:
             continue
-        fold = " ".join(q.lower().split())[:60]
+        # Punctuation-insensitive: [measured] "Sehr gute Deutsch- und gute
+        # Englischkenntnisse." and the same sentence without the full stop are
+        # two different strings and both reached the drawer, so five of six
+        # quotes on the rank-1 company said the same thing.
+        fold = re.sub(r"[^a-z0-9]+", " ", q.lower()).strip()[:60]
         if fold in seen:
             continue
         seen.add(fold)

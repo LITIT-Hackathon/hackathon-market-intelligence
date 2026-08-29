@@ -321,6 +321,33 @@ def build_bench(data_dir: Path) -> dict | None:
     pull_max = max(1e-9, float(value["marginal_demand"].max()))
     uniq_max = max(1e-9, float(value["uniqueness"].max()))
 
+    # Commercial and reputational attributes of each consultant. These live in
+    # `bench_sim.parquet` and every one of them is INVENTED -- the `sim_`
+    # prefix is the whole safety mechanism (DATA.md), so the columns keep it
+    # into the payload and the screen labels them as simulated. Absent file,
+    # the columns are simply absent and the table renders without them.
+    sim_path = data_dir / "bench_sim.parquet"
+    sim: dict[str, dict] = {}
+    if sim_path.exists():
+        sw = pd.read_parquet(sim_path)
+        keep = ["sim_github_profile", "sim_github_repos",
+                "sim_github_contributions_12m", "sim_github_stars",
+                "sim_day_rate_eur", "sim_client_rating", "sim_utilisation"]
+        if all(c in sw.columns for c in keep):
+            sim = sw.set_index("candidate_id")[keep].to_dict("index")
+
+    def _sim(cid: str) -> list:
+        r = sim.get(cid)
+        if not r:
+            return [None, None, None, None, None]
+        return [
+            int(r["sim_github_contributions_12m"]) if r["sim_github_profile"] else None,
+            int(r["sim_github_repos"]) if r["sim_github_profile"] else None,
+            int(r["sim_github_stars"]) if r["sim_github_profile"] else None,
+            int(r["sim_day_rate_eur"]),
+            round(float(r["sim_client_rating"]), 2),
+        ]
+
     cand_rows = [
         [int(r.rank), r.candidate_id, r.role_family, r.seniority,
          int(r.years_experience), _l(r.tech_tags), r.availability,
@@ -328,7 +355,8 @@ def build_bench(data_dir: Path) -> dict | None:
          round(float(r.marginal_demand) / pull_max, 4),
          round(float(r.uniqueness) / uniq_max, 4), float(r.deployability),
          thin.get((r.role_family, r.seniority), False),
-         int(r.atoms_matched), depth.get((r.role_family, r.seniority), 0)]
+         int(r.atoms_matched), depth.get((r.role_family, r.seniority), 0),
+         *_sim(r.candidate_id)]
         for r in value.itertuples()
     ]
     cell_rows = [
@@ -363,7 +391,10 @@ def build_bench(data_dir: Path) -> dict | None:
         },
         "cand_cols": ["rank", "id", "family", "seniority", "years", "tags",
                       "availability", "german", "value", "pull", "scarcity",
-                      "deploy", "thin", "atoms", "cell_depth"],
+                      "deploy", "thin", "atoms", "cell_depth",
+                      # simulated -- see DATA.md
+                      "gh_commits", "gh_repos", "gh_stars", "rate", "rating"],
+        "simulated": bool(sim),
         "cand_rows": cand_rows,
         "cells": cell_rows,
         "supply_vs_pull": supply_vs_pull,

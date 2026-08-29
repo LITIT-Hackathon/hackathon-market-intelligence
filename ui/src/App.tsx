@@ -4,13 +4,11 @@ import { Brief } from "./screens/Brief";
 import { Radar } from "./screens/Radar";
 import { Companies } from "./screens/Companies";
 import { Overview } from "./screens/Overview";
-import { Quality } from "./screens/Quality";
-import { Postings } from "./screens/Postings";
 import { Bench } from "./screens/Bench";
 import { Talent } from "./screens/Talent";
 import { Candidates } from "./screens/Candidates";
 
-type Tab = "brief" | "radar" | "companies" | "people" | "method";
+type Tab = "brief" | "radar" | "companies" | "people";
 
 /** One nav tab can reveal several stacked sections; every section stays
     mounted so filters survive a tab switch, exactly as the page did before. */
@@ -29,7 +27,6 @@ export function App({ data }: { data: Payload }) {
   if (data.radar) tabs.push({ id: "radar", label: "Opportunities" });
   tabs.push({ id: "companies", label: "Companies" });
   if (data.bench || data.talent) tabs.push({ id: "people", label: "People" });
-  tabs.push({ id: "method", label: "How it works" });
 
   // The briefing answers "what changed", which is the question you have
   // before you have a shortlist, so it opens the product when it exists.
@@ -47,10 +44,6 @@ export function App({ data }: { data: Payload }) {
             <span className="mark">OP<b>_</b>RADAR</span>
             <span className="sub"></span>
           </div>
-          <div className="stamp">
-            <span className="mchip">Snapshot <b>{m.snapshot}</b></span>
-            <span className="mchip">Parsed {m.generated}</span>
-          </div>
         </div>
         <nav>
           {tabs.map((t) => (
@@ -66,8 +59,6 @@ export function App({ data }: { data: Payload }) {
         {data.radar && <Radar R={data.radar} on={on} />}
         <Companies data={data} on={on} />
         <Overview data={data} on={on} />
-        <Quality data={data} on={on} />
-        <Postings data={data} on={on} />
         {data.bench && <Bench B={data.bench} on={on} />}
         {data.talent && <Talent T={data.talent} on={on} />}
         {data.talent && <Candidates T={data.talent} on={on} />}

@@ -22,7 +22,8 @@ export function Companies({ data, on }: { data: Payload; on: Tab }) {
     const medAge = co<number | null>("median_it_age_days");
     const techs = co<string[]>("top_technologies");
     return [
-      { t: "Company", v: name, cls: "nm" },
+      { t: "Company", v: name, cls: "nm",
+        help: "One employer, after merging the different spellings of the same name. 19,942 raw strings collapse to 18,416 entities." },
       {
         t: "Class", v: klass, render: (r) => {
           const c = klass(r);
@@ -40,9 +41,13 @@ export function Companies({ data, on }: { data: Payload; on: Tab }) {
           );
         },
       },
-      { t: "Postings", v: co("postings"), r: true },
-      { t: "IT", v: co("it_postings"), r: true },
-      { t: "IT %", v: co("it_intensity"), r: true, render: (r) => pct(co<number>("it_intensity")(r)) },
+      { t: "Postings", v: co("postings"), r: true,
+        help: "Every advertisement this employer had open on the crawl date, IT and non-IT together." },
+      { t: "IT", v: co("it_postings"), r: true,
+        help: "Of those, how many are IT roles by their job title. Title decides; the official occupation code only corroborates." },
+      { t: "IT %", v: co("it_intensity"), r: true,
+        help: "IT share of everything they advertise. A high share at a non-IT company usually means a technology programme rather than routine backfill.",
+        render: (r) => pct(co<number>("it_intensity")(r)) },
       {
         t: "Median IT age", v: medAge, r: true, render: (r) => {
           const v = medAge(r);
@@ -51,7 +56,8 @@ export function Companies({ data, on }: { data: Payload; on: Tab }) {
             : <span className={`age ${v > 90 ? "old" : ""}`}>{fmt(v)}d</span>;
         },
       },
-      { t: "Regions", v: co("region_count"), r: true },
+      { t: "Regions", v: co("region_count"), r: true,
+        help: "How many German regions they advertise across. Many regions plus many unrelated sectors is the signature of a staffing agency, not an employer." },
       {
         t: "Top technologies", v: techs, sortKey: (r) => techs(r).length,
         render: (r) => techs(r).slice(0, 5).map((t, i) => <span className="chip" key={i}>{t}</span>),
@@ -77,13 +83,6 @@ export function Companies({ data, on }: { data: Payload; on: Tab }) {
   return (
     <Screen id="companies" group="companies" on={on}>
       <p className="label">Companies &middot; the demand side</p>
-      <h2>Every company<br />we found</h2>
-      <p className="lede">All {fmt(data.meta.companies_total)} employers, after merging the different spellings of the same company
-        into one. Each is labelled by what it is &mdash; a business that might buy from us, a
-        recruitment agency, an IT firm we compete with &mdash; because that label decides whether it
-        can appear as a sales lead at all. <em>Review</em> marks the ones we could not tell apart
-        automatically.</p>
-
       <div className="controls">
         <input type="search" id="co-q" placeholder="Search company…" value={q} onChange={(e) => setQ(e.target.value)} />
         <select id="co-class" value={cls} onChange={(e) => setCls(e.target.value)}>

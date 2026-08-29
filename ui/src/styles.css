@@ -15,6 +15,11 @@
   /* one spacing scale -- every gap on the page is one of these six values.
      Before this, blocks were spaced with ad-hoc negative margins. */
   --s1:6px; --s2:10px; --s3:16px; --s4:24px; --s5:34px; --s6:48px;
+  /* The page had no measure: on a wide monitor every table, chart and
+     paragraph stretched to the full viewport, which is why the timeline
+     filled the screen and body text ran to 200 characters. One column
+     width, one gutter, used by the header, the nav and every screen. */
+  --maxw:1500px; --pad:clamp(16px,2.4vw,32px);
   --ring:0 0 0 3px rgba(26,28,27,.13);
   --lift:0 1px 2px rgba(26,28,27,.06);
   --pop:0 14px 38px rgba(26,28,27,.16);
@@ -49,7 +54,8 @@ html::-webkit-scrollbar-thumb{background:#3D423F;background-clip:padding-box}
 .num{font-variant-numeric:tabular-nums}
 
 /* ---------- shell ---------- */
-header{background:var(--ink);color:#fff;padding:22px 32px 0}
+header{background:var(--ink);color:#fff;padding:22px var(--pad) 0}
+header>*{max-width:var(--maxw);margin-inline:auto}
 .bar{display:flex;align-items:flex-end;justify-content:space-between;gap:24px;flex-wrap:wrap}
 .brand{display:flex;align-items:baseline;gap:14px}
 .brand .mark{font-family:var(--disp);font-weight:800;font-stretch:70%;font-size:30px;
@@ -88,12 +94,14 @@ nav button[aria-selected="true"]::after{right:-12px;
 nav button:focus-visible{outline:2px solid var(--accent);outline-offset:-3px}
 
 main{background:var(--paper);border-radius:var(--r) var(--r) 0 0;
-  padding:var(--s5) 32px 90px;min-height:70vh}
+  padding:var(--s5) var(--pad) 90px;min-height:70vh}
+.screen.on{max-width:var(--maxw);margin-inline:auto}
 .screen{display:none}
 .screen.on{display:block}
 .screen>h2{font-family:var(--disp);font-weight:700;font-stretch:68%;text-transform:uppercase;
   font-size:clamp(34px,5vw,58px);line-height:.92;letter-spacing:-.015em;margin:6px 0 10px}
 .lede{max-width:70ch;color:var(--muted);margin-bottom:var(--s5)}
+.note,.bf-note,.panel .hint{max-width:92ch}
 
 /* ---------- kpis ---------- */
 /* Headline numbers sit on a dark slab, not white cards on a white page:
@@ -129,7 +137,7 @@ details.more summary:hover{color:var(--ink)}
 details.more .kpis{margin-top:10px}
 
 /* ---------- panels + charts ---------- */
-.grid{display:grid;gap:var(--s3);grid-template-columns:repeat(auto-fit,minmax(340px,1fr));
+.grid{display:grid;gap:var(--s3);align-items:start;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));
   margin-bottom:var(--s3)}
 .panel{border:1px solid var(--line);border-radius:var(--r-sm);padding:20px 20px 22px;background:var(--paper)}
 .panel h3{font:600 14px/1.3 var(--sans);margin:6px 0 2px}
@@ -181,7 +189,8 @@ h3.tight{margin-bottom:var(--s1)}
 .controls{display:flex;gap:var(--s2);flex-wrap:wrap;align-items:center;margin-bottom:var(--s3)}
 /* the filter bar stays reachable while the ranking scrolls */
 .controls.stick{position:sticky;top:0;z-index:4;background:var(--paper);
-  margin:0 -32px var(--s3);padding:14px 32px;border-bottom:1px solid var(--line)}
+  margin:0 calc(-1 * var(--pad)) var(--s3);padding:14px var(--pad);
+  border-bottom:1px solid var(--line)}
 input[type=search],select,.chk{height:40px;font:400 13px var(--sans);color:var(--text);
   background:var(--paper);border:1px solid var(--line);border-radius:var(--r-ctl);
   transition:border-color var(--ease),box-shadow var(--ease),background var(--ease)}
@@ -235,6 +244,10 @@ tbody tr{transition:background var(--ease)}
 tbody tr:hover{background:var(--paper-2)}
 tbody tr:last-child td{border-bottom:0}
 td.nm{font-weight:500;max-width:300px}
+/* the ranked list is 4 columns on a wide table; let the story column take
+   the slack instead of leaving a dead strip between it and the meters */
+#ra-body td.nm{max-width:none;width:52%}
+#ra-body td.sg{width:26%}
 td.ti{max-width:380px}
 .tag{display:inline-block;font:600 10px/1 var(--sans);letter-spacing:.06em;text-transform:uppercase;
   padding:5px 9px;border-radius:var(--pill);background:var(--paper-2);color:var(--muted);
@@ -287,17 +300,17 @@ input[type=range]::-moz-range-thumb{width:14px;height:14px;border-radius:50%;
    number lives in the panel underneath. */
 .rk{font:600 12px/1 var(--sans);color:var(--muted-2);font-variant-numeric:tabular-nums}
 .cname{font-weight:600;font-size:14.5px;letter-spacing:-.005em}
-.csub{display:block;margin-top:4px;font:400 12.5px/1.45 var(--sans);color:var(--muted);max-width:52ch}
+.csub{display:block;margin-top:4px;font:400 12.5px/1.45 var(--sans);color:var(--muted);max-width:68ch}
 .cchips{display:block;margin-top:7px}
 
-.sig{display:grid;gap:7px;min-width:172px;max-width:290px}
-.sigrow{display:grid;grid-template-columns:64px 1fr 26px;gap:9px;align-items:center}
+.sig{display:grid;gap:9px;min-width:210px;max-width:400px}
+.sigrow{display:grid;grid-template-columns:108px 1fr 30px;gap:10px;align-items:center}
 .sigrow .k{font:600 9.5px/1 var(--sans);letter-spacing:.07em;text-transform:uppercase;
   color:var(--muted-2)}
-.sigrow .t{height:6px;border-radius:var(--pill);background:var(--paper-2)}
+.sigrow .t{height:10px;border-radius:var(--pill);background:var(--paper-2)}
 .sigrow .t i{display:block;height:100%;border-radius:var(--pill);background:var(--ink)}
 .sigrow.sup .t i{background:var(--iris)}
-.sigrow .n{font:600 11px/1 var(--sans);color:var(--muted);text-align:right;
+.sigrow .n{font:600 12.5px/1 var(--sans);color:var(--ink);text-align:right;
   font-variant-numeric:tabular-nums}
 
 .scorecell{display:inline-flex;align-items:center;justify-content:flex-end;gap:11px}
@@ -347,7 +360,7 @@ details.adv[open] summary{margin-bottom:var(--s3);color:var(--ink)}
 .svcbar i.low{background:var(--warn)}
 /* ---------- the detail panel: tier two ---------- */
 tr.evrow>td{background:var(--paper-2);padding:0}
-.ex{padding:20px 18px 22px 20px;box-shadow:inset 3px 0 0 var(--accent)}
+.ex{padding:22px 20px 24px 22px;box-shadow:inset 3px 0 0 var(--accent)}
 .extiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(128px,1fr));gap:1px;
   background:var(--line);border:1px solid var(--line);border-radius:var(--r-ctl);
   overflow:hidden;margin-bottom:var(--s4)}
@@ -361,6 +374,21 @@ tr.evrow>td{background:var(--paper-2);padding:0}
   color:var(--muted-2);margin-left:9px}
 .tile.acc .v{color:var(--iris)}
 .tile.zero .v{color:var(--muted-2)}
+/* the open row: a stat strip, then the timeline with its reading beside it,
+   then the signal meters across the bottom */
+.exmain{display:grid;grid-template-columns:minmax(0,1.55fr) minmax(300px,1fr);
+  gap:var(--s5);align-items:start;margin-bottom:var(--s5)}
+.extl{min-width:0}
+.extl .tlc{max-width:none}
+.exwhy{min-width:0;display:flex;flex-direction:column;gap:var(--s2)}
+.exwhy .why{margin-top:2px}
+.exwhy .uncov{margin-top:var(--s2)}
+.exai{display:flex;flex-wrap:wrap;gap:var(--s2);margin-top:auto;padding-top:var(--s3)}
+.exai .ai{margin:0}
+.exsig{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);
+  gap:var(--s4) var(--s5);align-items:start}
+@media(max-width:1100px){.exmain{grid-template-columns:1fr}}
+@media(max-width:920px){.exsig{grid-template-columns:1fr}}
 .excols{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:var(--s4) var(--s5);
   margin-bottom:var(--s4)}
 @media(max-width:920px){.excols{grid-template-columns:1fr}}
@@ -371,11 +399,12 @@ tr.evrow>td{background:var(--paper-2);padding:0}
 .why li::before{content:"";position:absolute;left:0;top:8px;width:6px;height:6px;
   border-radius:50%;background:var(--accent);box-shadow:0 0 0 1px var(--line-2)}
 .why li.sup::before{background:var(--iris);box-shadow:none}
-.mix{display:grid;gap:9px;max-width:440px}
+.mix{display:grid;gap:10px;max-width:560px}
 .mix+.evhead{margin-top:var(--s4)}
-.mixrow{display:grid;grid-template-columns:minmax(0,1fr) 92px 30px;gap:12px;align-items:center}
+.mixrow{display:grid;grid-template-columns:minmax(0,1fr) minmax(90px,180px) 30px;
+  gap:14px;align-items:center}
 .mixrow .k{font:400 12.5px/1.35 var(--sans);color:var(--ink)}
-.mixrow .t{height:7px;border-radius:var(--pill);background:var(--line)}
+.mixrow .t{height:9px;border-radius:var(--pill);background:var(--line)}
 .mixrow .t i{display:block;height:100%;border-radius:var(--pill);background:var(--ink)}
 .mixrow.sup .t i{background:var(--iris)}
 .mixrow .n{font:600 11.5px/1 var(--sans);text-align:right;color:var(--muted);
@@ -384,8 +413,9 @@ tr.evrow>td{background:var(--paper-2);padding:0}
 .uncov b{color:var(--warn);font-weight:600}
 .uncov .chip{background:#FBEAE6;color:#8C3121}
 /* ---------- open-roles timeline (evidence panel) ---------- */
-.tlc{position:relative;background:var(--ink);border-radius:var(--r-sm);padding:10px 12px 10px;margin-top:4px}
-.tlc svg{display:block;width:100%;height:auto}
+.tlc{position:relative;background:var(--ink);border-radius:var(--r-sm);
+  padding:10px 12px;margin-top:4px;max-width:1080px}
+.tlc svg{display:block;width:100%;height:auto;max-height:330px}
 .tlc a{cursor:pointer}
 .tlc a:hover text{fill:var(--accent)}
 .tlhit{cursor:crosshair}
@@ -427,7 +457,7 @@ tr.evrow>td{background:var(--paper-2);padding:0}
 tbody tr.clickable{cursor:pointer}
 
 /* ---------- quality ---------- */
-.q{display:grid;gap:var(--s3);grid-template-columns:repeat(auto-fit,minmax(340px,1fr))}
+.q{display:grid;gap:var(--s3);align-items:start;grid-template-columns:repeat(auto-fit,minmax(340px,1fr))}
 .q .panel.span2{grid-column:span 2}
 @media(max-width:900px){.q .panel.span2{grid-column:auto}}
 .kv{width:100%;font-size:13px}
@@ -558,17 +588,30 @@ footer a{color:var(--muted-2);text-decoration:underline}
 .ai-link:hover{color:var(--ink)}
 .ai-link:disabled{opacity:.5;cursor:default}
 
-.ai-panel{border:1px solid var(--iris);border-radius:var(--r-sm);
-  background:var(--paper);padding:var(--s4);margin-top:var(--s2);
-  box-shadow:0 0 0 4px var(--iris-soft)}
+/* the drawer: portalled to <body>, so no scroll container can clip it */
+.ai-scrim{position:fixed;inset:0;z-index:40;background:rgba(26,28,27,.34);
+  display:flex;justify-content:flex-end;animation:ai-fade .16s ease}
+.ai-drawer{width:min(620px,100vw);background:var(--paper);height:100%;
+  display:flex;flex-direction:column;box-shadow:-18px 0 48px rgba(26,28,27,.22);
+  animation:ai-slide .22s cubic-bezier(.32,.72,.35,1)}
+@keyframes ai-fade{from{opacity:0}to{opacity:1}}
+@keyframes ai-slide{from{transform:translateX(28px)}to{transform:none}}
+@media (prefers-reduced-motion:reduce){
+  .ai-scrim,.ai-drawer{animation:none}
+}
 .ai-head{display:flex;justify-content:space-between;align-items:flex-start;
-  gap:var(--s3);flex-wrap:wrap;border-bottom:1px solid var(--line);
-  padding-bottom:var(--s3);margin-bottom:var(--s3)}
+  gap:var(--s3);padding:var(--s4) var(--s4) var(--s3);
+  border-bottom:1px solid var(--line);flex:0 0 auto}
 .ai-head .label{color:var(--iris)}
-.ai-head h4{font-family:var(--disp);font-weight:700;font-stretch:72%;font-size:26px;
+.ai-head h4{font-family:var(--disp);font-weight:700;font-stretch:72%;font-size:27px;
   line-height:1.05;margin:6px 0 3px;color:var(--ink)}
 .ai-sub{font:400 12px/1.4 var(--sans);color:var(--muted)}
 .ai-actions{display:flex;align-items:center;gap:var(--s3);flex-shrink:0}
+.ai-x{font:400 22px/1 var(--sans);color:var(--muted);background:none;border:0;
+  cursor:pointer;padding:0 2px;border-radius:5px}
+.ai-x:hover{color:var(--ink)}
+.ai-body{flex:1 1 auto;overflow-y:auto;padding:var(--s4) var(--s4) var(--s6);
+  overscroll-behavior:contain}
 
 .ai-lede{font:500 17px/1.5 var(--sans);color:var(--ink);max-width:66ch;
   margin-bottom:var(--s3)}
@@ -613,8 +656,61 @@ footer a{color:var(--muted-2);text-decoration:underline}
 .ai-foot{font:400 11px/1.5 var(--sans);color:var(--muted-2);max-width:74ch;
   margin-top:var(--s4);border-top:1px solid var(--line);padding-top:var(--s2)}
 
-/* the analyst inside an open Opportunities row: the row already sits on the
-   off-white detail surface, so the panel drops its own shadow ring */
 .ex .ai{margin-top:var(--s4)}
-.ex .ai-panel{box-shadow:none;background:var(--paper)}
-.ai-row{display:flex;flex-wrap:wrap;gap:var(--s2)}
+/* two analyst buttons under one open row sit side by side */
+.ex .ai+.ai{margin-top:var(--s2)}
+
+/* ---------- recharts ----------
+   The library ships no styling worth keeping; everything visible here is a
+   token from the top of this file. */
+.rc{width:100%}
+.rc .recharts-surface{overflow:visible}
+.rc-tip{background:var(--paper);border:1px solid var(--line-2);border-radius:var(--r-ctl);
+  box-shadow:var(--pop);padding:9px 11px;min-width:120px}
+.rc-tip .k{font:600 12px/1.3 var(--sans);color:var(--ink);margin-bottom:5px}
+.rc-tip .v{display:flex;align-items:center;gap:7px;font:400 12px/1.5 var(--sans);
+  color:var(--muted)}
+.rc-tip .v i{width:9px;height:9px;border-radius:2px;flex:0 0 auto}
+.rc-tip .v .n{flex:1 1 auto}
+.rc-tip .v b{font-weight:600;color:var(--ink);font-variant-numeric:tabular-nums}
+.rc-note{font:400 11px/1.5 var(--sans);color:var(--muted-2);margin-top:var(--s2)}
+.recharts-legend-item-text{color:var(--muted)!important}
+.recharts-cartesian-axis-tick text{font-variant-numeric:tabular-nums}
+
+/* charts sit in panels that are now capped, so a panel never has to hold a
+   2000px-wide chart on a big monitor */
+.panel{min-width:0}
+.grid{min-width:0}
+
+/* ---------- people: the simulated commercial columns ---------- */
+.gh{display:inline-flex;flex-direction:column;align-items:flex-end;gap:1px;line-height:1.25}
+.gh b{font-weight:600;font-variant-numeric:tabular-nums}
+.ghm{font:400 10.5px/1 var(--sans);color:var(--muted-2);white-space:nowrap}
+.rate{font-weight:600;font-variant-numeric:tabular-nums}
+.stars{display:inline-flex;align-items:center;gap:7px;justify-content:flex-end}
+.stars .sb{width:46px;height:5px;border-radius:var(--pill);background:var(--paper-2);
+  overflow:hidden;flex:0 0 auto}
+.stars .sb i{display:block;height:100%;background:var(--iris);border-radius:var(--pill)}
+.stars b{font-weight:600;font-variant-numeric:tabular-nums;min-width:2.2ch}
+.z{color:var(--muted-2)}
+
+/* ---------- column hints ----------
+   A header has room for two words; the reader needs a sentence. Columns that
+   carry a derived number say what it measures on hover. */
+thead th.has-help .thl{border-bottom:1px dotted var(--muted-2);padding-bottom:1px}
+thead th.has-help{cursor:help}
+.thtip{position:fixed;z-index:50;transform:translateX(-50%);
+  background:var(--ink);color:var(--paper);border-radius:var(--r-ctl);
+  padding:9px 12px;font:400 12px/1.5 var(--sans);letter-spacing:0;
+  text-transform:none;box-shadow:var(--pop);pointer-events:none}
+.thtip::before{content:"";position:absolute;top:-5px;left:50%;margin-left:-5px;
+  border:5px solid transparent;border-top:0;border-bottom-color:var(--ink)}
+.rc-tip .v.gapline{border-top:1px solid var(--line);margin-top:5px;padding-top:5px}
+.dumb circle{transition:r .12s}
+.recharts-bar-rectangle:hover .dumb circle{r:6.5}
+.rc-key{display:flex;flex-wrap:wrap;gap:var(--s2) var(--s4);margin-top:var(--s2);
+  font:400 11.5px/1 var(--sans);color:var(--muted)}
+.rc-key span{display:inline-flex;align-items:center;gap:7px}
+.rc-key i{width:10px;height:10px;border-radius:50%;flex:0 0 auto}
+.rc-key i.rule{width:18px;height:4px;border-radius:var(--pill);background:var(--line)}
+.rc-key .sp{color:var(--muted-2)}

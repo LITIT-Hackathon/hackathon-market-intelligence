@@ -184,9 +184,12 @@ export function Radar({ R, on }: { R: RadarData; on: Tab }) {
     };
 
     return [
-      { t: "#", v: (r) => Math.round(oppOf(r)), r: true, render: (_r, pos) => <span className="rk">{pos}</span> },
+      { t: "#", v: (r) => Math.round(oppOf(r)), r: true,
+        help: "Position in this filtered list, best first. It moves when you change a filter or a weight slider.", render: (_r, pos) => <span className="rk">{pos}</span> },
       {
-        t: "Company", v: name, cls: "nm", render: (r) => (
+        t: "Company", v: name, cls: "nm",
+        help: "The employer, and one plain sentence describing what they are doing on the job board right now. Badges flag anything that should change how you read the row.",
+        render: (r) => (
           <>
             <span className="cname">{name(r)}</span>
             {review(r) && <> <span className="tag warn" title="We could not confirm from the data whether this is a customer or an IT supplier. Check before calling.">unconfirmed</span></>}
@@ -206,15 +209,19 @@ export function Radar({ R, on }: { R: RadarData; on: Tab }) {
         ),
       },
       {
-        t: "Demand · we staff", v: demandOf, cls: "sg", render: (r) => (
+        t: "Their need · what we could staff", v: demandOf, cls: "sg",
+        help: "Two separate rankings, each out of 100 against the other companies in this list — not shares of one another. Their need combines the four market signals: unfilled roles, hiring above their own baseline, one concentrated programme, and seniority. What we could staff is how much of that work our bench could actually take. A company can rank 90 on need and 20 on staffing; that is a lead we cannot serve.",
+        render: (r) => (
           <span className="sig">
-            <Meter cls="" label="Demand" pct={demandOf(r)} />
-            <Meter cls="sup" label="We staff" pct={reachOf(r)} />
+            <Meter cls="" label="Their need" pct={demandOf(r)} />
+            <Meter cls="sup" label="We could staff" pct={reachOf(r)} />
           </span>
         ),
       },
       {
-        t: "Score /100", v: oppOf, r: true, render: (r) => {
+        t: "Score /100", v: oppOf, r: true,
+        help: "Demand and We staff combined as a weighted geometric mean, then read as a percentile of this pool. 87 means ahead of 87% of the companies here — it is a ranking, not an absolute rating.",
+        render: (r) => {
           const v = oppOf(r);
           return (
             <span className="scorecell">
@@ -244,13 +251,6 @@ export function Radar({ R, on }: { R: RadarData; on: Tab }) {
   return (
     <Screen id="radar" group="radar" on={on}>
       <p className="label">Opportunities &middot; demand matched to people</p>
-      <h2>Who to call,<br />and why</h2>
-      <p className="lede">Both halves of the product in one list. We find German companies that
-        cannot fill their IT roles, then check each one against the people we could actually
-        put on the work &mdash; so the top of this list is not just who is struggling, but who
-        is struggling <em>with work we can take</em>. Every company scores out of 100, judged
-        against the others here. Click any row for the real job ads behind it.</p>
-
       <div className="kpis">
         <div className="kpi hl"><p className="label">Companies worth calling</p><p className="v num" id="k-ranked">{fmt(rows.length)}</p><p className="n">ranked below, best first</p></div>
         <div className="kpi"><p className="label">IT roles they cannot fill</p><p className="v num" id="k-roles">{fmt(sum("it_n"))}</p><p className="n">open right now across all of them</p></div>
@@ -380,41 +380,51 @@ function Detail({ r, rx }: { r: Row; rx: ReturnType<typeof indexer> }) {
           : <Tile k="Roles we could fill" v={<>{cov}<span className="sfx">of {tot}</span></>} cls="acc" />}
         <Tile k="People we could place" v={placeable.toFixed(1)} cls="acc" />
       </div>
-      <div className="excols">
-        <div>
+      {/* Chart on the left, the reading of it on the right. The prose used to
+          sit above the timeline, which left the reader scrolling between the
+          claim and the evidence for it. */}
+      <div className="exmain">
+        <div className="extl">
+          <p className="evhead">Open roles over time
+            <span className="sfx">from the June crawl &mdash; hover the line to see which</span></p>
+          <Timeline tl={tl} />
+        </div>
+
+        <div className="exwhy">
           <p className="evhead">Why this company</p>
           <ul className="why">
             {dem.map((t, i) => <li key={"d" + i}>{t}</li>)}
             {sup.map((t, i) => <li className="sup" key={"s" + i}>{t}</li>)}
           </ul>
-        </div>
-        <div>
-          <p className="evhead">What the market is doing <span className="sfx">percentile vs the rest of this list</span></p>
-          <div className="mix">
-            {NEEDMIX.map(([k, label]) => <MixRow cls="" label={label} frac={rx<number>(k)(r)} key={k} />)}
-          </div>
-          <p className="evhead">What we bring</p>
-          <div className="mix">
-            <MixRow cls="sup" label="Depth of bench behind those roles" frac={svc} />
-            <MixRow cls="sup" label="Deal size — people we could place at once" frac={deal} />
-          </div>
           {Object.keys(unc).length > 0 && (
             <p className="uncov"><b>We cannot staff:</b>{" "}
               {Object.entries(unc).map(([k, v]) => <span className="chip" key={k}>{k} ×{v}</span>)}
               {" "}not skills our bench carries today.</p>
           )}
+          <div className="exai">
+            <AiButton task="company" args={{ company }} label="Write the full brief" />
+            <AiButton task="outreach" args={{ company }} label="Prepare the call" small />
+          </div>
         </div>
       </div>
-      <p className="evhead">Open roles over time
-        <span className="sfx">from the June crawl &mdash; hover the line to see which</span></p>
-      <Timeline tl={tl} />
 
-      {/* The analyst. Everything above this line was counted; everything below
-          it is written from those counts and cites the advertisements it used. */}
-      <AiButton task="company" args={{ company }} label="Write the full brief"
-        hint="Reads this company's advertisements and writes the account brief: what they are building, why this week, the play to run, and the reasons it could still be a waste of time." />
-      <AiButton task="outreach" args={{ company }} label="Prepare the call" small
-        hint="A German phone script built on one of these advertisements, plus which channels are legal to use here." />
+      <div className="exsig">
+        <div>
+          <p className="evhead">Their need, signal by signal
+            <span className="sfx">each ranked out of 100 against the rest of this list</span></p>
+          <div className="mix">
+            {NEEDMIX.map(([k, label]) => <MixRow cls="" label={label} frac={rx<number>(k)(r)} key={k} />)}
+          </div>
+        </div>
+        <div>
+          <p className="evhead">What we could bring
+            <span className="sfx">ranked the same way</span></p>
+          <div className="mix">
+            <MixRow cls="sup" label="Depth of bench behind those roles" frac={svc} />
+            <MixRow cls="sup" label="Deal size — people we could place at once" frac={deal} />
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

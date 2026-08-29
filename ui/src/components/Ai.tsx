@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 
 /* The AI layer, in one component.
 
@@ -154,27 +155,87 @@ function Blocks({ blocks }: { blocks: AiBlock[] }) {
   );
 }
 
+const KIND: Record<string, string> = {
+  outreach: "Suggested approach",
+  gap: "Sourcing brief",
+  summary: "What this view shows",
+  cohort: "Cohort briefing",
+  company: "Account brief",
+};
+
+/* The result opens in a drawer, not under the button.
+
+   These buttons sit inside table rows, and several of those tables scroll
+   inside a capped box -- an answer rendered in place was clipped by its own
+   container and read as broken. A drawer is portalled to <body>, so no
+   `overflow` above it can cut it off, it scrolls on its own, and the table
+   underneath keeps the size it was designed at. */
+function Drawer({ out, busy, onRewrite, onClose }: {
+  out: AiReply; busy: boolean; onRewrite: () => void; onClose: () => void;
+}) {
+  useEffect(() => {
+    const key = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("keydown", key);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.removeEventListener("keydown", key);
+      document.body.style.overflow = prev;
+    };
+  }, [onClose]);
+
+  return createPortal(
+    <div className="ai-scrim" onClick={onClose}>
+      <aside className="ai-drawer" role="dialog" aria-modal="true"
+        aria-label={`${KIND[out.task] || "Analysis"}: ${out.title}`}
+        onClick={(e) => e.stopPropagation()}>
+        <header className="ai-head">
+          <div>
+            <p className="label">{KIND[out.task] || "Analysis"}</p>
+            <h4>{out.title}</h4>
+            <p className="ai-sub">{out.subtitle}</p>
+          </div>
+          <div className="ai-actions">
+            {out.cached && (
+              <span className="tag" title="Generated earlier and stored on disk, so this cost nothing and works offline">cached</span>
+            )}
+            <button className="ai-link" onClick={onRewrite} disabled={busy}>
+              {busy ? "…" : "Rewrite"}
+            </button>
+            <button className="ai-x" onClick={onClose} aria-label="Close">×</button>
+          </div>
+        </header>
+
+        <div className="ai-body">
+          <Blocks blocks={out.blocks} />
+          <p className="ai-foot">{out.footer}. Every figure above was counted in
+            pandas before the model saw it; quotes and links are printed from our
+            own data, not written by the model.</p>
+        </div>
+      </aside>
+    </div>,
+    document.body,
+  );
+}
+
 type Args = Record<string, unknown>;
 
 interface ButtonProps {
   task: string;
   args: Args;
   label: string;
-  /** shown under the button before anything has been generated */
+  /** shown beside the button before anything has been generated */
   hint?: string;
   /** small text button rather than the filled one */
   small?: boolean;
-  /** the panel opens above this, e.g. inside an already-open detail row */
-  children?: ReactNode;
 }
 
-/** A button that asks the analyst for one thing, and the panel it opens. */
+/** A button that asks the analyst for one thing, and the drawer it opens. */
 export function AiButton({ task, args, label, hint, small }: ButtonProps) {
   const live = useAi();
   const [busy, setBusy] = useState(false);
   const [out, setOut] = useState<AiReply | null>(null);
   const [err, setErr] = useState<string | null>(null);
-  const panel = useRef<HTMLDivElement>(null);
 
   const run = useCallback((refresh: boolean) => {
     setBusy(true);
@@ -197,19 +258,15 @@ export function AiButton({ task, args, label, hint, small }: ButtonProps) {
   /* No analyst, no button. The static page is honest about what it cannot do. */
   if (!live) return null;
 
-  const stop = (e: React.MouseEvent) => { e.stopPropagation(); };
-
   return (
-    <div className="ai" onClick={stop}>
-      {!out && (
-        <div className="ai-cta">
-          <button className={small ? "ai-btn sm" : "ai-btn"} disabled={busy}
-            onClick={() => run(false)}>
-            {busy ? "Reading the evidence…" : label}
-          </button>
-          {hint && !busy && <span className="ai-hint">{hint}</span>}
-        </div>
-      )}
+    <div className="ai" onClick={(e) => e.stopPropagation()}>
+      <div className="ai-cta">
+        <button className={small ? "ai-btn sm" : "ai-btn"} disabled={busy}
+          onClick={() => run(false)}>
+          {busy ? "Reading the evidence…" : label}
+        </button>
+        {hint && !busy && !out && <span className="ai-hint">{hint}</span>}
+      </div>
 
       {err && (
         <p className="ai-err">Could not generate that: {err}
@@ -218,32 +275,8 @@ export function AiButton({ task, args, label, hint, small }: ButtonProps) {
       )}
 
       {out && (
-        <div className="ai-panel" ref={panel}>
-          <div className="ai-head">
-            <div>
-              <p className="label">{out.task === "outreach" ? "Suggested approach"
-                : out.task === "gap" ? "Sourcing brief"
-                : out.task === "summary" ? "What this view shows"
-                : out.task === "cohort" ? "Cohort briefing"
-                : "Account brief"}</p>
-              <h4>{out.title}</h4>
-              <p className="ai-sub">{out.subtitle}</p>
-            </div>
-            <div className="ai-actions">
-              {out.cached && <span className="tag" title="Generated earlier and stored on disk, so this cost nothing and works offline">cached</span>}
-              <button className="ai-link" onClick={() => run(true)} disabled={busy}>
-                {busy ? "…" : "Rewrite"}
-              </button>
-              <button className="ai-link" onClick={() => setOut(null)}>Close</button>
-            </div>
-          </div>
-
-          <Blocks blocks={out.blocks} />
-
-          <p className="ai-foot">{out.footer}. Every figure above was counted in
-            pandas before the model saw it; quotes and links are printed from our
-            own data, not written by the model.</p>
-        </div>
+        <Drawer out={out} busy={busy} onRewrite={() => run(true)}
+          onClose={() => setOut(null)} />
       )}
     </div>
   );

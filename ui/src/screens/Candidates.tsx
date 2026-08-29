@@ -20,7 +20,8 @@ export function Candidates({ T, on }: { T: TalentData; on: Tab }) {
     const skills = cx<number[]>("skills");
     const qualified = cx<number>("qualified_for_openings");
     return [
-      { t: "ID", v: cx("candidate_id"), cls: "nm" },
+      { t: "ID", v: cx("candidate_id"), cls: "nm",
+        help: "Synthetic profile identifier. No real person, and no personal data anywhere in this table." },
       { t: "Role", v: cx("role"), cls: "nm" },
       {
         t: "Family", v: family, render: (r) => {
@@ -34,9 +35,12 @@ export function Candidates({ T, on }: { T: TalentData; on: Tab }) {
       { t: "Education", v: cx("education") },
       {
         t: "Skills", v: skills, sortKey: (r) => skills(r).length,
+        help: "Skills on the profile, from a 73-word vocabulary. Only 7 of those have a German equivalent in our extraction, which is why this set cannot be joined to the German data.",
         render: (r) => skills(r).map((i) => <span className="chip" key={i}>{T.dicts.skills[i]}</span>),
       },
-      { t: "Qualified for", v: qualified, r: true, render: (r) => fmt(qualified(r)) },
+      { t: "Qualified for", v: qualified, r: true,
+        help: "How many of the openings in this fixture this profile satisfies on the documented rule. A measure of the generator, not of any labour market.",
+        render: (r) => fmt(qualified(r)) },
     ];
   }, [cx, T]);
 
@@ -57,15 +61,9 @@ export function Candidates({ T, on }: { T: TalentData; on: Tab }) {
         || skills(r).some((i) => T.dicts.skills[i].toLowerCase().includes(qq))));
   }, [CA, cx, T, q, role, sen, ind, techOnly]);
 
-  const tm = T.meta;
   return (
     <Screen id="candidates" group="people" on={on}>
       <p className="label">Candidates</p>
-      <h2>The bench</h2>
-      <p className="lede">All {fmt(tm.candidates)} parsed profiles. <em>Qualified for</em> counts how many of the
-        {" "}{fmt(tm.openings)} openings each candidate meets the must-have threshold for &mdash; recomputed here,
-        not taken from the dataset's own labels.</p>
-
       <div className="controls">
         <input type="search" id="ca-q" placeholder="Search role, industry or skill..." value={q} onChange={(e) => setQ(e.target.value)} />
         <select id="ca-role" value={role} onChange={(e) => setRole(e.target.value)}>

@@ -140,8 +140,10 @@ export function Brief({ b, on }: { b: BriefData; on: Tab }) {
         <span className="bf-when"><b>{b.crawl_date}</b> crawl <i>&rarr;</i>{" "}
           <b>{b.board_date}</b> board</span>
       </div>
-      <h2>What changed<br />since the crawl</h2>
-      {b.narration ? (
+      {/* Generated prose, and the only prose left on this screen. Without a
+          narration file there is nothing to say here that the figures below
+          do not already say. */}
+      {b.narration && (
         <>
           {b.narration.paragraphs.map((p, i) => (
             <p className="lede" style={{ marginBottom: "var(--s3)" }} key={i}>{p}</p>
@@ -150,12 +152,6 @@ export function Brief({ b, on }: { b: BriefData; on: Tab }) {
             which were counted in pandas. The narrator cannot see the
             postings and cannot state a number that is not below it.</p>
         </>
-      ) : (
-        <p className="lede">We have looked at the German job board twice.
-          One look tells you who is hiring; two tell you who <em>stopped</em> &mdash; which is
-          the question worth asking, because a company that quit advertising while its roles
-          are still open has a problem it has stopped trying to solve cheaply. Every number
-          here is counted from the two observations, never estimated.</p>
       )}
 
       <div className="kpis">
