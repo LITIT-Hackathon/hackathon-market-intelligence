@@ -229,8 +229,9 @@ def build_radar(data_dir: Path) -> dict | None:
             # the five effective signals, in config order
             round(float(r.unmet_eff), 4), round(float(r.expansion_eff), 4),
             round(float(r.programme_eff), 4), round(float(r.seniority_eff), 4),
-            round(float(r.serviceability_eff), 4),
-            float(r.serviceability), int(r.atoms_covered), int(r.atoms_uncovered),
+            round(float(r.serviceability_eff), 4), round(float(r.dealsize_eff), 4),
+            float(r.serviceability), float(r.dealsize), float(r.placeable_w),
+            int(r.atoms_covered), int(r.atoms_uncovered),
             _j(r.uncovered_families, {}),
             float(r.confidence), r.confidence_band,
             int(r.it_n), int(r.snap_aged_45), int(r.snap_aged_90), int(r.senior_k),
@@ -255,8 +256,8 @@ def build_radar(data_dir: Path) -> dict | None:
             "floor": cfg["signals"]["log_floor"],
         },
         "cols": ["rank", "name", "segment", "review", "opp", "pressure",
-                 "unmet", "expansion", "programme", "seniority", "svcsig",
-                 "svc", "covered", "uncovered", "uncovered_families",
+                 "unmet", "expansion", "programme", "seniority", "svcsig", "dealsig",
+                 "svc", "deal", "placeable", "covered", "uncovered", "uncovered_families",
                  "conf", "band", "it_n", "open45", "open90", "senior_n",
                  "median_age", "techs", "live_n", "dead_n",
                  "verified", "now_stock", "now_aged", "timeline"],
@@ -700,7 +701,8 @@ TEMPLATE = r"""<!doctype html>
       <label>Hiring above their own baseline <input type="range" id="w-expansion" min="0" max="50" value="15"><b id="wv-expansion">15</b></label>
       <label>One programme, not scattered backfill <input type="range" id="w-programme" min="0" max="50" value="22"><b id="wv-programme">22</b></label>
       <label>Senior roles they cannot fill <input type="range" id="w-seniority" min="0" max="50" value="15"><b id="wv-seniority">15</b></label>
-      <label>How much of it we could staff <input type="range" id="w-svcsig" min="0" max="50" value="18"><b id="wv-svcsig">18</b></label>
+      <label>How much of it we could staff <input type="range" id="w-svcsig" min="0" max="50" value="16"><b id="wv-svcsig">16</b></label>
+      <label>How many people we could place at once <input type="range" id="w-dealsig" min="0" max="50" value="10"><b id="wv-dealsig">10</b></label>
       <button id="w-reset" class="resetbtn">Reset</button>
     </div>
   </details>
@@ -708,7 +710,8 @@ TEMPLATE = r"""<!doctype html>
   <div class="note after"><b>How to read a row.</b> Each row carries two meters.
     <em>Demand</em> combines the four market signals — unfilled roles, hiring above their
     own baseline, one concentrated programme, and seniority; <em>We staff</em> is how much
-    of that demand our bench could actually take. The score is the two combined and then
+    of that demand our bench could take &mdash; both how well we fit it and how many people
+    we could place at once, because a one-person contract is not really a contract. The score is the two combined and then
     read as a percentile of this pool, so 87 means ahead of 87% of the companies here.
     A company with demand we cannot serve does not reach the top. Click any row for the whole
     breakdown &mdash; the four things behind Demand, what we bring against them, and the

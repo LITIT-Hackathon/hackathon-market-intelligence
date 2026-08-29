@@ -133,12 +133,20 @@ CONFIG: dict = {
     #   seniority      a strong buying trigger on 24% coverage
     #   expansion      real, but two observations support a direction, not a
     #                  trend -- deliberately the lowest
+    # dealsize took a uniform 10% slice; the other five keep their relative
+    # ordering and their original reasoning exactly.
     "signal_weights": {
-        "unmet": 0.30,
-        "programme": 0.22,
-        "serviceability": 0.18,
-        "seniority": 0.15,
-        "expansion": 0.15,
+        "unmet": 0.27,
+        "programme": 0.20,
+        "serviceability": 0.16,
+        "expansion": 0.14,
+        "seniority": 0.13,
+        # S6. A contract we could put four people on is not four times a
+        # one-person contract, it is a different kind of deal -- one placement
+        # is a body shop order, a team is a project we can lead. Serviceability
+        # is a QUALITY measure and saturates at "we fit"; on its own it ranks a
+        # perfectly covered single vacancy level with a covered team.
+        "dealsize": 0.10,
     },
 
     # ---- confidence -------------------------------------------------------
@@ -183,6 +191,11 @@ CONFIG: dict = {
         # about the past. (S1 already carries "they cannot fill things" from
         # the live board, so the match layer does not need to say it twice.)
         "atom_weight_gt90": 0.3, "atom_weight_gt45": 0.6, "atom_weight_fresh": 1.0,
+
+        # Deal size saturates here: roughly four staffable roles is a
+        # team-sized engagement, and past that the marginal role does not make
+        # the deal categorically better. [stated]
+        "deal_saturation": 4.0,
     },
 
     # ---- Algorithm B: capability portfolio + people ----------------------

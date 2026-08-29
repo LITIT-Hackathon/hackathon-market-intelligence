@@ -100,6 +100,21 @@ def atom_match(atom_rank, atom_tags: set, candidates: list[dict]
     return best, len(ids), ids
 
 
+def live_atoms(grp: pd.DataFrame) -> pd.DataFrame:
+    """Drop vacancies `opradar.liveness` confirmed are gone.
+
+    A delisted advertisement is not demand anyone can be placed into, so it
+    cannot support a claim about what we could staff -- counting it is what
+    produced "we can cover 4 of 4 roles" under a panel showing one live ad.
+    Unknown liveness is kept: never checked is not the same as checked and
+    gone. Where the column is absent entirely nothing is dropped.
+    """
+    if "alive" not in grp.columns:
+        return grp
+    dead = (grp["alive"].astype("boolean") == False).fillna(False)  # noqa: E712
+    return grp[~dead.to_numpy(dtype=bool)]
+
+
 def _atoms(grp: pd.DataFrame):
     for atom in grp.itertuples():
         rank = None if atom.seniority_rank != atom.seniority_rank else int(atom.seniority_rank)
@@ -114,7 +129,8 @@ def serviceability(eligible_pool: pd.DataFrame, bench: pd.DataFrame) -> pd.DataF
 
     rows = []
     for key, grp in eligible_pool.groupby("company_key"):
-        weight_sum = score_sum = 0.0
+        grp = live_atoms(grp)
+        weight_sum = score_sum = placeable = 0.0
         covered = uncovered = strong = 0
         uncovered_families: dict[str, int] = {}
 
@@ -125,6 +141,9 @@ def serviceability(eligible_pool: pd.DataFrame, bench: pd.DataFrame) -> pd.DataF
 
             weight_sum += w
             score_sum += w * (m["coverage_weight"] * coverage + m["depth_weight"] * depth)
+            # heads we could actually put on this contract, discounted by how
+            # well each one fits and how fresh the vacancy is
+            placeable += w * coverage
 
             strong += int(coverage >= m["strong_coverage"])
             if coverage > 0:
@@ -137,6 +156,8 @@ def serviceability(eligible_pool: pd.DataFrame, bench: pd.DataFrame) -> pd.DataF
         rows.append({
             "company_key": key,
             "serviceability": round((score_sum / weight_sum) if weight_sum else 0.0, 4),
+            "placeable_w": round(placeable, 2),
+            "dealsize": round(min(1.0, placeable / m["deal_saturation"]), 4),
             "atoms_total": covered + uncovered,
             "atoms_covered": covered,
             "atoms_strong": strong,
@@ -167,6 +188,12 @@ def cell_demand(eligible_pool: pd.DataFrame, ranked: pd.DataFrame,
     weights = ranked.set_index("company_key")["pressure"].to_dict()
     by_family = bench_by_family(bench)
 
+    # NOT filtered to live vacancies, unlike serviceability above. The two ask
+    # different questions: "could we staff this contract" is a claim about
+    # roles open today, so a delisted ad cannot support it, while "what
+    # capability should we build" is a description of what the German market
+    # asks for -- and a role that got filled is the strongest evidence there
+    # is that someone wanted it.
     rows: list[dict] = []
     for atom, rank, tags in _atoms(eligible_pool):
         cw = float(weights.get(atom.company_key, 0.0))

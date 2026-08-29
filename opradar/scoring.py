@@ -57,7 +57,8 @@ import pandas as pd
 
 from .config import CONFIG, config_hash
 
-SIGNALS = ["unmet", "expansion", "programme", "seniority", "serviceability"]
+SIGNALS = ["unmet", "expansion", "programme", "seniority",
+           "serviceability", "dealsize"]
 
 
 # ---------------------------------------------------------------------------
@@ -388,7 +389,18 @@ def score(feats: pd.DataFrame, serviceability: pd.DataFrame,
     s = signals(feats)
     s = s.merge(serviceability, on="company_key", how="left")
     s["serviceability"] = s["serviceability"].fillna(0.0)
-    s["serviceability_e"] = 1.0
+    s["dealsize"] = s["dealsize"].fillna(0.0)
+    s["placeable_w"] = s["placeable_w"].fillna(0.0)
+    s["atoms_total"] = s["atoms_total"].fillna(0)
+
+    # Both bench signals are computed over vacancies still live, so a company
+    # whose whole crawl has since been taken down has no evidence rather than
+    # bad news. Without this the delisting filter would punish companies for
+    # OUR observational gap -- exactly what the evidence weights exist to
+    # prevent. Full weight at min_it_postings live atoms.
+    atoms_ev = (s["atoms_total"].astype(float) / CONFIG["min_it_postings"]).clip(0, 1)
+    s["serviceability_e"] = atoms_ev
+    s["dealsize_e"] = atoms_ev
 
     w = CONFIG["signal_weights"]
     floor = CONFIG["signals"]["log_floor"]

@@ -772,8 +772,9 @@ if (D.radar) {
      combined as a weighted GEOMETRIC mean, then read as a percentile inside
      the pool. Reproducing it here rather than approximating it means the
      sliders move the real ranking, not a second looser model. */
-  const SIG = ['unmet', 'expansion', 'programme', 'seniority', 'svcsig'];
-  const WKEY = { svcsig: 'serviceability' };
+  const SIG = ['unmet', 'expansion', 'programme', 'seniority', 'svcsig', 'dealsig'];
+  const OURS = ['svcsig', 'dealsig'];        /* our side of the trade */
+  const WKEY = { svcsig: 'serviceability', dealsig: 'dealsize' };
   const FLOOR = R.meta.floor || 0.05;
   const W0 = {};
   SIG.forEach(k => W0[k] = Math.round((R.meta.weights[WKEY[k] || k] || 0) * 100));
@@ -792,7 +793,8 @@ if (D.radar) {
   const pressureOf = r => gmean(r, SIG);
   /* the market's four signals on their own -- the half of the score that has
      nothing to do with us */
-  const marketOf = r => gmean(r, SIG.filter(k => k !== 'svcsig'));
+  const marketOf = r => gmean(r, SIG.filter(k => OURS.indexOf(k) < 0));
+  const reachRaw = r => gmean(r, OURS);
 
   /* Everything on a row is a percentile of this pool, including the two
      meters. Raw geometric means are tiny and incomparable -- "Demand 15"
@@ -807,7 +809,7 @@ if (D.radar) {
   const repct = () => {
     PCT = rank01(pressureOf);
     PDEM = rank01(marketOf);
-    PREACH = rank01(r => rx('svcsig')(r));
+    PREACH = rank01(reachRaw);
   };
   repct();
   const oppOf = r => PCT.get(r) ?? 0;
@@ -898,6 +900,12 @@ if (D.radar) {
       sup.push(`Someone on our bench fits each of the ${tot} roles still up, but depth is thin in places.`);
     else
       sup.push(`Our bench could cover ${cov} of the ${tot} roles still up.`);
+    /* Deal size: more people on one contract is a different kind of deal. */
+    const placeable = rx('placeable')(r);
+    if (rx('deal')(r) >= 0.95)
+      sup.push(`Team-sized: enough staffable roles here to place about ${Math.round(placeable)} people at once, not one.`);
+    else if (tot && placeable < 1.2)
+      sup.push(`Thin deal \u2014 about one placeable role, which is a body-shop order rather than a project.`);
     /* the marker colour tells you whose side of the trade a line is about */
     return dem.map(t => ({t: t, sup: false})).concat(sup.map(t => ({t: t, sup: true})));
   };
@@ -927,7 +935,8 @@ if (D.radar) {
       + tile('Open 6+ weeks at crawl', o45, o45 ? '' : 'zero')
       + tile('Senior or lead', sen, sen ? '' : 'zero')
       + tile('Typical age', rx('median_age')(r) + '<span class="sfx">days</span>')
-      + tile('Roles we could fill', cov + '<span class="sfx">of ' + tot + '</span>', 'acc');
+      + tile('Roles we could fill', cov + '<span class="sfx">of ' + tot + '</span>', 'acc')
+      + tile('People we could place', rx('placeable')(r).toFixed(1), 'acc');
 
     const row = (cls, label, frac) =>
       `<div class="mixrow ${cls}"><span class="k">${label}</span>`
@@ -936,7 +945,7 @@ if (D.radar) {
 
     const mix = NEEDMIX.map(([k, label]) => row('', label, rx(k)(r))).join('');
     const ours = row('sup', 'Depth of bench behind those roles', rx('svc')(r))
-      + row('sup', 'What that is worth to the score', rx('svcsig')(r));
+      + row('sup', 'Deal size \u2014 people we could place at once', rx('deal')(r));
 
     const uncov = Object.keys(unc).length
       ? `<p class="uncov"><b>We cannot staff:</b> `
